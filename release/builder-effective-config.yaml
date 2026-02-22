@@ -1,0 +1,17 @@
+directories:
+  output: release
+  buildResources: build
+appId: com.zeroclaw.desktop
+productName: ZeroClaw Desktop
+files:
+  - filter:
+      - dist/**/*
+      - package.json
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.icns
+win:
+  icon: resources/icon.ico
+linux:
+  icon: resources/icon.png
+electronVersion: 28.3.3
