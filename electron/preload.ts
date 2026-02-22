@@ -88,8 +88,12 @@ const api = {
       get: (id: string) => ipcRenderer.invoke('workflow:templates:get', id),
     },
     getRoles: () => ipcRenderer.invoke('workflow:roles'),
-    getPhases: () => ipcRenderer.invoke('workflow:phases'),
+    getPhases: (workflowId: string) => ipcRenderer.invoke('workflow:phases:get', workflowId),
     getTeamMembers: () => ipcRenderer.invoke('workflow:team-members'),
+    getContext: (workflowId: string) => ipcRenderer.invoke('workflow:context', workflowId),
+    listApprovals: (workflowId?: string) => ipcRenderer.invoke('workflow:approvals:list', workflowId),
+    respondToApproval: (approvalId: string, approved: boolean, comment?: string) => 
+      ipcRenderer.invoke('workflow:approval:respond', approvalId, approved, comment),
     onUpdate: (callback: (wf: any) => void) => {
       const handler = (_: any, wf: any) => callback(wf);
       ipcRenderer.on('workflow:update', handler);
@@ -150,6 +154,15 @@ const api = {
   prompt: {
     optimize: (prompt: string, agentName?: string, requirements?: string) => 
       ipcRenderer.invoke('prompt:optimize', prompt, agentName, requirements),
+    analyzeTask: (message: string, tools?: string[]) => 
+      ipcRenderer.invoke('prompt:analyze-task', message, tools),
+    getConfig: () => ipcRenderer.invoke('prompt:config'),
+    setConfig: (config: any) => ipcRenderer.invoke('prompt:set-config', config),
+  },
+
+  soul: {
+    getStrategy: () => ipcRenderer.invoke('soul:strategy'),
+    setStrategy: (strategy: any) => ipcRenderer.invoke('soul:set-strategy', strategy),
   },
 
   soulTemplates: {

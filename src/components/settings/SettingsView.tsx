@@ -4,15 +4,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Save, Play, Square, RefreshCw, Moon, Sun, Monitor, FolderOpen, Cog, Workflow, Bot, Layers, Coins, Server } from 'lucide-react';
+import { Save, Play, Square, RefreshCw, Moon, Sun, Monitor, FolderOpen, Cog, Workflow, Bot, Layers, Coins, Server, Zap } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { LLMProvidersConfig } from './LLMProvidersConfig';
 import { AgentsConfig } from './AgentsConfig';
 import { AgentGroupsConfig } from './AgentGroupsConfig';
 import { TokenUsageStats } from '@/components/stats/TokenUsageStats';
 import { MCPServerList } from '@/components/mcp/MCPServerList';
+import { PromptOptimizerPanel } from './PromptOptimizerPanel';
 
-type SettingsTab = 'providers' | 'agents' | 'groups' | 'mcp' | 'system' | 'appearance' | 'stats';
+type SettingsTab = 'providers' | 'agents' | 'groups' | 'mcp' | 'prompt' | 'system' | 'appearance' | 'stats';
 
 export function SettingsView() {
   const { config, systemStatus, setConfig, setSystemStatus, theme, setTheme } = useSettingsStore();
@@ -153,6 +154,7 @@ export function SettingsView() {
     { id: 'agents', label: '智能体', icon: <Bot size={16} /> },
     { id: 'groups', label: '智能体群组', icon: <Layers size={16} /> },
     { id: 'mcp', label: 'MCP 服务器', icon: <Server size={16} /> },
+    { id: 'prompt', label: 'Prompt 优化', icon: <Zap size={16} /> },
     { id: 'stats', label: '消耗统计', icon: <Coins size={16} /> },
     { id: 'system', label: '系统', icon: <Workflow size={16} /> },
     { id: 'appearance', label: '外观', icon: <Monitor size={16} /> },
@@ -168,6 +170,8 @@ export function SettingsView() {
         return <AgentGroupsConfig />;
       case 'mcp':
         return <MCPServerList />;
+      case 'prompt':
+        return <PromptOptimizerPanel />;
       case 'stats':
         return (
           <div className="space-y-6">
