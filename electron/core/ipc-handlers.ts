@@ -33,10 +33,25 @@ function validateSessionId(sessionId: unknown): string | null {
   if (sessionId.length > MAX_SESSION_ID_LENGTH) {
     return `Session ID too long (max ${MAX_SESSION_ID_LENGTH} characters)`;
   }
-  // UUID format check (optional but recommended)
+  // Strict UUID format check to prevent injection attacks
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(sessionId)) {
     return 'Invalid session ID format';
+  }
+  return null;
+}
+
+function validatePath(path: unknown): string | null {
+  if (typeof path !== 'string') {
+    return 'Path must be a string';
+  }
+  if (path.includes('../') || path.includes('..\\')) {
+    return 'Path traversal detected';
+  }
+  // Additional path validation to prevent directory traversal
+  const normalized = path.normalize();
+  if (!normalized.startsWith('/') && !normalized.startsWith('~') && !normalized.match(/^[A-Za-z]:\\/)) {
+    return 'Invalid path format';
   }
   return null;
 }
@@ -376,6 +391,10 @@ export function setupIpcHandlers(bridge: ZeroClawBridge, db: Database) {
 
     if (!result.canceled && result.filePaths.length > 0) {
       const selectedPath = result.filePaths[0];
+      const pathError = validatePath(selectedPath);
+      if (pathError) {
+        return { success: false, path: null, error: pathError };
+      }
       db.setZeroclawConfigPath(selectedPath);
       return { success: true, path: selectedPath };
     }

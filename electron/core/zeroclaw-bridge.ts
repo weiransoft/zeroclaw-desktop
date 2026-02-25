@@ -36,6 +36,9 @@ const DEFAULT_WORKSPACE = path.join(os.homedir(), 'claw');
 const GATEWAY_HOST = '127.0.0.1';
 const GATEWAY_PORT = 8080;
 
+const MAX_MESSAGE_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_ACCUMULATED_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
+
 export class ZeroClawBridge extends EventEmitter {
   private process: ChildProcess | null = null;
   private db: Database;
@@ -121,17 +124,26 @@ export class ZeroClawBridge extends EventEmitter {
       return;
     }
 
+    // 定义安全的配置文件路径，防止路径遍历攻击
     const configPaths = [
       path.join(os.homedir(), '.zeroclaw', 'config.toml'),
-      path.join(os.homedir(), 'claw', 'zeroclaw', 'config.toml'),
       path.join(os.homedir(), '.config', 'zeroclaw', 'config.toml'),
-      path.join(process.cwd(), 'config.toml'),
     ];
 
     for (const configPath of configPaths) {
       try {
-        if (fs.existsSync(configPath)) {
-          const content = fs.readFileSync(configPath, 'utf-8');
+        // 验证路径安全性
+        const normalizedPath = path.resolve(configPath);
+        const homeDir = path.resolve(os.homedir());
+        
+        // 确保路径在用户目录下，防止路径遍历
+        if (!normalizedPath.startsWith(homeDir)) {
+          console.warn(`Config path ${configPath} is outside home directory, skipping...`);
+          continue;
+        }
+        
+        if (fs.existsSync(normalizedPath)) {
+          const content = fs.readFileSync(normalizedPath, 'utf-8');
           // 简单解析TOML格式，查找gateway下的paired_tokens
           const lines = content.split('\n');
           let inGatewaySection = false;
@@ -295,6 +307,12 @@ export class ZeroClawBridge extends EventEmitter {
 
   private gatewayRequest(method: string, path: string, body: any = null, timeout: number = 300000, customHeaders: Record<string, string> = {}): Promise<any> {
     return new Promise((resolve, reject) => {
+      // 验证路径，防止 SSRF 攻击
+      if (!this.isValidPath(path)) {
+        reject(new Error('Invalid path for gateway request'));
+        return;
+      }
+      
       const bodyStr = body ? JSON.stringify(body) : null;
       
       const headers: http.OutgoingHttpHeaders = {
@@ -321,7 +339,14 @@ export class ZeroClawBridge extends EventEmitter {
 
       const req = http.request(options, (res) => {
         let data = '';
-        res.on('data', (chunk) => { data += chunk; });
+        res.on('data', (chunk) => {
+          // 防止响应过大导致内存问题
+          data += chunk;
+          if (data.length > MAX_MESSAGE_BUFFER_SIZE) {
+            req.destroy();
+            reject(new Error('Response too large'));
+          }
+        });
         res.on('end', () => {
           try {
             if (data.trim()) {
@@ -349,6 +374,18 @@ export class ZeroClawBridge extends EventEmitter {
       }
       req.end();
     });
+  }
+  
+  private isValidPath(path: string): boolean {
+    // 验证路径不包含危险字符，防止 SSRF 攻击
+    if (path.includes('..') || path.includes(';') || path.includes('&')) {
+      return false;
+    }
+    // 确保路径以 / 开头
+    if (!path.startsWith('/')) {
+      return false;
+    }
+    return true;
   }
 
   private updateWorkspaceFromConfig() {
