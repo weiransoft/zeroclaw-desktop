@@ -735,7 +735,22 @@ export class ClawHubService extends EventEmitter {
       
       this.emit('download:started', approval);
 
-      const skillDir = path.join(this.getSkillsDir(), approval.request.skillId);
+      // 验证 skillId 不包含路径遍历字符
+      const skillId = approval.request.skillId;
+      if (skillId.includes('../') || skillId.includes('..\\') || skillId.includes('/..') || skillId.includes('\\..')) {
+        throw new Error(`Invalid skillId contains path traversal: ${skillId}`);
+      }
+
+      const skillDir = path.join(this.getSkillsDir(), skillId);
+      
+      // 确保目标路径在允许的目录内
+      const normalizedSkillDir = path.resolve(skillDir);
+      const normalizedSkillsDir = path.resolve(this.getSkillsDir());
+      
+      if (!normalizedSkillDir.startsWith(normalizedSkillsDir)) {
+        throw new Error(`Skill directory path traversal detected: ${skillDir}`);
+      }
+      
       if (!fs.existsSync(skillDir)) {
         fs.mkdirSync(skillDir, { recursive: true });
       }
@@ -833,8 +848,23 @@ export class ClawHubService extends EventEmitter {
   }
 
   async uninstallSkill(skillId: string): Promise<boolean> {
+    // 验证 skillId 不包含路径遍历字符
+    if (skillId.includes('../') || skillId.includes('..\\') || skillId.includes('/..') || skillId.includes('\\..')) {
+      console.error(`Invalid skillId contains path traversal: ${skillId}`);
+      return false;
+    }
+
     const skillDir = path.join(this.getSkillsDir(), skillId);
     
+    // 确保目标路径在允许的目录内
+    const normalizedSkillDir = path.resolve(skillDir);
+    const normalizedSkillsDir = path.resolve(this.getSkillsDir());
+    
+    if (!normalizedSkillDir.startsWith(normalizedSkillsDir)) {
+      console.error(`Skill directory path traversal detected: ${skillDir}`);
+      return false;
+    }
+
     if (!fs.existsSync(skillDir)) {
       return false;
     }

@@ -15,7 +15,8 @@ export function isValidUUID(uuid: string): boolean {
  */
 export function sanitizePath(inputPath: string, allowedBasePath?: string): string | null {
   // 移除危险字符
-  if (inputPath.includes('../') || inputPath.includes('..\\')) {
+  if (inputPath.includes('../') || inputPath.includes('..\\') || 
+      inputPath.includes('/..') || inputPath.includes('\\..')) {
     return null;
   }
 
@@ -33,6 +34,21 @@ export function sanitizePath(inputPath: string, allowedBasePath?: string): strin
   }
 
   return normalizedPath;
+}
+
+/**
+ * 验证路径是否安全，防止路径遍历
+ */
+export function isPathTraversalSafe(inputPath: string, allowedBasePath: string): boolean {
+  if (inputPath.includes('../') || inputPath.includes('..\\') || 
+      inputPath.includes('/..') || inputPath.includes('\\..')) {
+    return false;
+  }
+
+  const resolvedPath = require('path').resolve(inputPath);
+  const resolvedBase = require('path').resolve(allowedBasePath);
+
+  return resolvedPath.startsWith(resolvedBase);
 }
 
 /**
