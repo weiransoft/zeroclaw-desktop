@@ -142,7 +142,7 @@ export function WorkflowDetail({
             >
               {getStatusText(workflow.status)}
             </Badge>
-            {approvals.filter((a) => a.status === 'pending').length > 0 && (
+            {Array.isArray(approvals) && approvals.filter((a) => a.status === 'pending').length > 0 && (
               <ApprovalQueueBadge />
             )}
           </div>
@@ -242,7 +242,7 @@ export function WorkflowDetail({
             </TabsTrigger>
             <TabsTrigger value="approvals">
               <ThumbsUp size={14} className="mr-1" />
-              审批 ({approvals.filter((a) => a.status === 'pending').length})
+              审批 ({Array.isArray(approvals) ? approvals.filter((a) => a.status === 'pending').length : 0})
             </TabsTrigger>
           </TabsList>
 

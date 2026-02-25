@@ -223,12 +223,12 @@ export function ApprovalManager() {
     }
   };
 
-  const filteredApprovals = approvals.filter((a) => {
+  const filteredApprovals = Array.isArray(approvals) ? approvals.filter((a) => {
     if (filter === 'all') return true;
     return a.status === filter;
-  });
+  }) : [];
 
-  const pendingCount = approvals.filter((a) => a.status === 'pending').length;
+  const pendingCount = Array.isArray(approvals) ? approvals.filter((a) => a.status === 'pending').length : 0;
 
   if (loading) {
     return (
@@ -290,7 +290,7 @@ export function ApprovalManager() {
               : 'bg-dark-700 text-dark-400 hover:bg-dark-600'
           )}
         >
-          已批准 ({approvals.filter((a) => a.status === 'approved').length})
+          已批准 ({Array.isArray(approvals) ? approvals.filter((a) => a.status === 'approved').length : 0})
         </button>
         <button
           onClick={() => setFilter('rejected')}
@@ -301,7 +301,7 @@ export function ApprovalManager() {
               : 'bg-dark-700 text-dark-400 hover:bg-dark-600'
           )}
         >
-          已拒绝 ({approvals.filter((a) => a.status === 'rejected').length})
+          已拒绝 ({Array.isArray(approvals) ? approvals.filter((a) => a.status === 'rejected').length : 0})
         </button>
       </div>
 
