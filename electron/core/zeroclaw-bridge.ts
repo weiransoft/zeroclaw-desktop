@@ -48,6 +48,8 @@ export class ZeroClawBridge extends EventEmitter {
   private bearerToken: string | null = null;
   private isPaired = false;
   private accumulatedContent: string = '';
+  private processEventHandlers: Array<() => void> = [];
+  private checkGatewayPromise: Promise<void> | null = null;
 
   constructor(db: Database) {
     super();
@@ -56,7 +58,10 @@ export class ZeroClawBridge extends EventEmitter {
     this.updateWorkspaceFromConfig();
     this.loadSavedToken();
     this.loadTokenFromConfig();  // 尝试从配置文件加载token
-    this.checkGateway();
+    // 异步检查网关状态，不阻塞构造函数
+    this.checkGateway().catch(err => {
+      console.log('Error checking gateway during initialization:', err);
+    });
   }
 
   private loadToken(): void {
@@ -178,7 +183,9 @@ export class ZeroClawBridge extends EventEmitter {
       
       if (result.paired && result.token) {
         this.saveToken(result.token);
+        this.isPaired = true;
         broadcastToWindows('system:log', { level: 'info', message: 'Successfully paired with ZeroClaw Gateway' });
+        broadcastToWindows('system:paired', { isPaired: true });
         return { success: true, message: '配对成功' };
       } else if (result.error) {
         return { success: false, message: result.error };
@@ -202,40 +209,56 @@ export class ZeroClawBridge extends EventEmitter {
       return { success: false, message: '无效的 Token 格式' };
     }
     this.saveToken(token);
+    this.isPaired = true;
+    broadcastToWindows('system:log', { level: 'info', message: 'Token 设置成功' });
+    broadcastToWindows('system:paired', { isPaired: true });
     return { success: true, message: 'Token 设置成功' };
   }
 
   private async checkGateway(): Promise<void> {
-    try {
-      const result = await this.gatewayRequest('GET', '/health', null, 2000);
-      if (result && result.status === 'ok') {
-        this.gatewayAvailable = true;
-        this.isRunning = true;
-        
-        if (this.bearerToken) {
-          const tokenValid = await this.verifyToken();
-          if (!tokenValid) {
-            console.log('Token is invalid, clearing...');
-            this.clearToken();
-            this.isPaired = false;
-          } else {
-            this.isPaired = true;
-          }
-        } else {
-          this.isPaired = result.paired === true;
-          // 如果网关显示已配对但本地没有token，尝试使用已知的默认token
-          if (this.isPaired && !this.bearerToken) {
-            await this.tryKnownTokens();
-          }
-        }
-        
-        console.log('ZeroClaw Gateway is available, paired:', this.isPaired);
-        broadcastToWindows('system:log', { level: 'info', message: 'Connected to ZeroClaw Gateway' });
-      }
-    } catch (err) {
-      this.gatewayAvailable = false;
-      console.log('ZeroClaw Gateway not available, will need to start manually');
+    // 如果已经有一个检查在进行中，等待它完成
+    if (this.checkGatewayPromise) {
+      return this.checkGatewayPromise;
     }
+
+    // 创建新的检查 Promise
+    this.checkGatewayPromise = (async () => {
+      try {
+        const result = await this.gatewayRequest('GET', '/health', null, 2000);
+        if (result && result.status === 'ok') {
+          this.gatewayAvailable = true;
+          this.isRunning = true;
+          
+          if (this.bearerToken) {
+            const tokenValid = await this.verifyToken();
+            if (!tokenValid) {
+              console.log('Token is invalid, clearing...');
+              this.clearToken();
+              this.isPaired = false;
+            } else {
+              this.isPaired = true;
+            }
+          } else {
+            this.isPaired = result.paired === true;
+            // 如果网关显示已配对但本地没有token，尝试使用已知的默认token
+            if (this.isPaired && !this.bearerToken) {
+              await this.tryKnownTokens();
+            }
+          }
+          
+          console.log('ZeroClaw Gateway is available, paired:', this.isPaired);
+          broadcastToWindows('system:log', { level: 'info', message: 'Connected to ZeroClaw Gateway' });
+        }
+      } catch (err) {
+        this.gatewayAvailable = false;
+        console.log('ZeroClaw Gateway not available, will need to start manually');
+      } finally {
+        // 清除 Promise 引用，允许下次检查
+        this.checkGatewayPromise = null;
+      }
+    })();
+
+    return this.checkGatewayPromise;
   }
 
   /**
@@ -379,6 +402,28 @@ export class ZeroClawBridge extends EventEmitter {
         env,
       });
 
+      // 保存事件处理器的清理函数
+      const cleanupStdout = () => {
+        if (this.process?.stdout) {
+          this.process.stdout.removeAllListeners('data');
+        }
+      };
+      
+      const cleanupStderr = () => {
+        if (this.process?.stderr) {
+          this.process.stderr.removeAllListeners('data');
+        }
+      };
+      
+      const cleanupProcess = () => {
+        if (this.process) {
+          this.process.removeAllListeners('close');
+          this.process.removeAllListeners('error');
+        }
+      };
+
+      this.processEventHandlers.push(cleanupStdout, cleanupStderr, cleanupProcess);
+
       this.process.stdout?.on('data', (data: Buffer) => {
         this.handleOutput(data.toString());
       });
@@ -408,6 +453,7 @@ export class ZeroClawBridge extends EventEmitter {
   }
 
   stop(): void {
+    // 清理进程事件监听器
     if (this.process) {
       this.process.stdout?.removeAllListeners();
       this.process.stderr?.removeAllListeners();
@@ -415,10 +461,24 @@ export class ZeroClawBridge extends EventEmitter {
       this.process.kill('SIGTERM');
       this.process = null;
     }
+    
+    // 清理所有保存的清理函数
+    this.processEventHandlers.forEach(cleanup => {
+      try {
+        cleanup();
+      } catch (err) {
+        console.warn('Error in cleanup function:', err);
+      }
+    });
+    this.processEventHandlers = [];
+    
+    // 清理状态
     this.messageBuffer = '';
     this.isRunning = false;
     this.gatewayAvailable = false;
-    this.removeAllListeners();
+    
+    // 注意：不要移除所有事件监听器，因为这可能会影响其他组件
+    // 只移除特定的事件监听器，而不是使用 removeAllListeners()
   }
 
   private findZeroClawBinary(): string {
@@ -824,54 +884,120 @@ export class ZeroClawBridge extends EventEmitter {
   }
 
   async startWorkflow(id: string): Promise<any> {
-    if (!this.isRunning) {
-      throw new Error('ZeroClaw is not running');
+    // 先尝试检查网关状态
+    try {
+      await this.checkGateway();
+    } catch (err) {
+      console.log('Error checking gateway:', err);
     }
 
+    // 如果网关可用，直接使用网关
     if (this.gatewayAvailable) {
       return this.gatewayRequest('POST', '/workflow/start', { id });
     }
 
-    return { success: true };
+    // 如果网关不可用，尝试直接请求
+    try {
+      const result = await this.gatewayRequest('POST', '/workflow/start', { id });
+      this.isRunning = true;
+      this.gatewayAvailable = true;
+      return result;
+    } catch (err) {
+      throw new Error('ZeroClaw is not running or gateway is not available');
+    }
   }
 
   async pauseWorkflow(id: string): Promise<any> {
-    if (!this.isRunning) {
-      throw new Error('ZeroClaw is not running');
+    // 先尝试检查网关状态
+    try {
+      await this.checkGateway();
+    } catch (err) {
+      console.log('Error checking gateway:', err);
     }
 
+    // 如果网关可用，直接使用网关
     if (this.gatewayAvailable) {
       return this.gatewayRequest('POST', '/workflow/pause', { id });
     }
 
-    return { success: true };
+    // 如果网关不可用，尝试直接请求
+    try {
+      const result = await this.gatewayRequest('POST', '/workflow/pause', { id });
+      this.isRunning = true;
+      this.gatewayAvailable = true;
+      return result;
+    } catch (err) {
+      throw new Error('ZeroClaw is not running or gateway is not available');
+    }
   }
 
   async resumeWorkflow(id: string): Promise<any> {
-    if (!this.isRunning) {
-      throw new Error('ZeroClaw is not running');
+    // 先尝试检查网关状态
+    try {
+      await this.checkGateway();
+    } catch (err) {
+      console.log('Error checking gateway:', err);
     }
 
+    // 如果网关可用，直接使用网关
     if (this.gatewayAvailable) {
       return this.gatewayRequest('POST', '/workflow/resume', { id });
     }
 
-    return { success: true };
+    // 如果网关不可用，尝试直接请求
+    try {
+      const result = await this.gatewayRequest('POST', '/workflow/resume', { id });
+      this.isRunning = true;
+      this.gatewayAvailable = true;
+      return result;
+    } catch (err) {
+      throw new Error('ZeroClaw is not running or gateway is not available');
+    }
   }
 
   async stopWorkflow(id: string): Promise<any> {
-    if (!this.isRunning) {
-      throw new Error('ZeroClaw is not running');
+    // 先尝试检查网关状态
+    try {
+      await this.checkGateway();
+    } catch (err) {
+      console.log('Error checking gateway:', err);
     }
 
+    // 如果网关可用，直接使用网关
     if (this.gatewayAvailable) {
       return this.gatewayRequest('POST', '/workflow/stop', { id });
     }
 
-    return { success: true };
+    // 如果网关不可用，尝试直接请求
+    try {
+      const result = await this.gatewayRequest('POST', '/workflow/stop', { id });
+      this.isRunning = true;
+      this.gatewayAvailable = true;
+      return result;
+    } catch (err) {
+      throw new Error('ZeroClaw is not running or gateway is not available');
+    }
   }
 
   async getWorkflowStatus(id: string): Promise<any> {
+    // 先尝试检查网关状态
+    try {
+      await this.checkGateway();
+    } catch (err) {
+      console.log('Error checking gateway:', err);
+    }
+
+    // 如果网关可用，尝试从网关获取状态
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/workflow/status/${id}`, null);
+        return result;
+      } catch (err) {
+        console.log('Error getting workflow status from gateway:', err);
+      }
+    }
+
+    // 如果网关不可用，从本地数据库获取状态
     return this.db.getWorkflowStatus(id);
   }
 

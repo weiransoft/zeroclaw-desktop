@@ -57,7 +57,7 @@ export function TitleBar() {
         className="h-8 bg-dark-900 flex items-center justify-center select-none relative"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       >
-        <div className="text-xs text-dark-400 font-medium">
+        <div className="text-xs text-dark-400 font-medium pointer-events-none">
           ZeroClaw Desktop
         </div>
       </div>

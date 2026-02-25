@@ -5,9 +5,10 @@ import { Input } from '@/components/ui/input';
 interface PairingDialogProps {
   isOpen: boolean;
   onPaired: () => void;
+  onClose: () => void;
 }
 
-export function PairingDialog({ isOpen, onPaired }: PairingDialogProps) {
+export function PairingDialog({ isOpen, onPaired, onClose }: PairingDialogProps) {
   const [mode, setMode] = useState<'code' | 'token'>('code');
   const [pairingCode, setPairingCode] = useState('');
   const [token, setToken] = useState('');
@@ -57,12 +58,6 @@ export function PairingDialog({ isOpen, onPaired }: PairingDialogProps) {
     setError(null);
 
     try {
-      if (!window.zeroclaw?.system?.setToken) {
-        setError('setToken 方法不可用');
-        setLoading(false);
-        return;
-      }
-      
       const result = await window.zeroclaw.system.setToken(token.trim());
       if (result.success) {
         onPaired();
@@ -88,9 +83,24 @@ export function PairingDialog({ isOpen, onPaired }: PairingDialogProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-xl">
-        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
+    <div 
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-xl relative"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+        
+        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white pr-8">
           配对 ZeroClaw Gateway
         </h2>
         

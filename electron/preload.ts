@@ -116,6 +116,11 @@ const api = {
       ipcRenderer.on('system:log', handler);
       return () => ipcRenderer.removeListener('system:log', handler);
     },
+    onPaired: (callback: (status: any) => void) => {
+      const handler = (_: any, status: any) => callback(status);
+      ipcRenderer.on('system:paired', handler);
+      return () => ipcRenderer.removeListener('system:paired', handler);
+    },
   },
 
   zeroclaw: {

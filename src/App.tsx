@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { StatusBar } from '@/components/layout/StatusBar';
 import { TitleBar } from '@/components/layout/TitleBar';
@@ -14,11 +14,26 @@ function App() {
   const [showPairingDialog, setShowPairingDialog] = useState(false);
   const [isPaired, setIsPaired] = useState(false);
   const [gatewayAvailable, setGatewayAvailable] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const checkPairingStatus = async () => {
       try {
+        if (!window.zeroclaw || !window.zeroclaw.system) {
+          console.log('ZeroClaw API not ready yet');
+          return;
+        }
+        
         const status = await window.zeroclaw.system.getPairingStatus();
+        if (!isMountedRef.current) return;
+        
         setGatewayAvailable(status.gatewayAvailable);
         setIsPaired(status.isPaired);
         
@@ -33,7 +48,27 @@ function App() {
     checkPairingStatus();
     
     const interval = setInterval(checkPairingStatus, 5000);
-    return () => clearInterval(interval);
+    
+    // 监听配对成功事件
+    let cleanupPairedListener: (() => void) | null = null;
+    
+    if (window.zeroclaw && window.zeroclaw.system && typeof window.zeroclaw.system.onPaired === 'function') {
+      cleanupPairedListener = window.zeroclaw.system.onPaired((status) => {
+        if (!isMountedRef.current) return;
+        
+        setIsPaired(status.isPaired);
+        setShowPairingDialog(false);
+      });
+    } else {
+      console.log('onPaired function not available yet');
+    }
+    
+    return () => {
+      clearInterval(interval);
+      if (cleanupPairedListener) {
+        cleanupPairedListener();
+      }
+    };
   }, []);
 
   const handlePaired = () => {
@@ -73,7 +108,8 @@ function App() {
       
       <PairingDialog 
         isOpen={showPairingDialog} 
-        onPaired={handlePaired} 
+        onPaired={handlePaired}
+        onClose={() => setShowPairingDialog(false)}
       />
     </div>
   );

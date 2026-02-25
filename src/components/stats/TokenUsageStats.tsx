@@ -59,13 +59,15 @@ export function TokenUsageStats() {
     return `${hours}h ${mins}m`;
   };
 
-  const formatCost = (cost: number) => {
+  const formatCost = (cost: number | undefined | null) => {
+    if (cost === undefined || cost === null) return '$0.00';
     if (cost < 0.01) return `$${cost.toFixed(6)}`;
     if (cost < 1) return `$${cost.toFixed(4)}`;
     return `$${cost.toFixed(2)}`;
   };
 
-  const formatTokens = (tokens: number) => {
+  const formatTokens = (tokens: number | undefined | null) => {
+    if (tokens === undefined || tokens === null) return '0';
     if (tokens < 1000) return tokens.toString();
     if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
     return `${(tokens / 1000000).toFixed(2)}M`;
