@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 import * as http from 'http';
+import * as fs from 'fs';
 import { EventEmitter } from 'events';
 import { safeStorage } from 'electron';
 import { Database } from '../store/database';
@@ -46,6 +47,7 @@ export class ZeroClawBridge extends EventEmitter {
   private gatewayAvailable = false;
   private bearerToken: string | null = null;
   private isPaired = false;
+  private accumulatedContent: string = '';
 
   constructor(db: Database) {
     super();
@@ -53,6 +55,7 @@ export class ZeroClawBridge extends EventEmitter {
     this.workspaceDir = DEFAULT_WORKSPACE;
     this.updateWorkspaceFromConfig();
     this.loadSavedToken();
+    this.loadTokenFromConfig();  // 尝试从配置文件加载token
     this.checkGateway();
   }
 
@@ -100,6 +103,72 @@ export class ZeroClawBridge extends EventEmitter {
     if (token && token.startsWith('zc_')) {
       this.bearerToken = token;
       this.isPaired = true;
+    }
+  }
+
+  /**
+   * 从配置文件加载配对token
+   * 如果本地没有保存的token，则尝试从zeroclaw配置文件中获取
+   */
+  private loadTokenFromConfig(): void {
+    // 如果已有token，则不从配置文件加载
+    if (this.bearerToken) {
+      return;
+    }
+
+    const configPaths = [
+      path.join(os.homedir(), '.zeroclaw', 'config.toml'),
+      path.join(os.homedir(), 'claw', 'zeroclaw', 'config.toml'),
+      path.join(os.homedir(), '.config', 'zeroclaw', 'config.toml'),
+      path.join(process.cwd(), 'config.toml'),
+    ];
+
+    for (const configPath of configPaths) {
+      try {
+        if (fs.existsSync(configPath)) {
+          const content = fs.readFileSync(configPath, 'utf-8');
+          // 简单解析TOML格式，查找gateway下的paired_tokens
+          const lines = content.split('\n');
+          let inGatewaySection = false;
+          
+          for (const line of lines) {
+            // 检查是否进入gateway部分
+            if (line.trim().startsWith('[gateway]')) {
+              inGatewaySection = true;
+              continue;
+            }
+            
+            // 检查是否离开gateway部分
+            if (line.trim().startsWith('[') && line.trim().endsWith(']') && !line.includes('gateway')) {
+              inGatewaySection = false;
+              continue;
+            }
+            
+            // 在gateway部分查找paired_tokens
+            if (inGatewaySection && line.includes('paired_tokens')) {
+              // 解析paired_tokens数组，例如：paired_tokens = ["token1", "token2"]
+              const match = line.match(/paired_tokens\s*=\s*\[(.*)\]/);
+              if (match) {
+                const tokensStr = match[1].trim();
+                // 提取引号内的token
+                const tokenMatches = tokensStr.match(/"([^"]+)"/g);
+                if (tokenMatches && tokenMatches.length > 0) {
+                  // 使用第一个token（如果有多个的话）
+                  const tokenValue = tokenMatches[0].replace(/"/g, '');
+                  if (tokenValue && tokenValue.length > 0) {
+                    // 我们只获取到哈希后的token，无法还原原始token
+                    // 所以这种方法不可行，我们需要通过API获取新的token
+                    console.log('Found paired tokens in config, but hashed tokens cannot be used directly');
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to read config file ${configPath}:`, error);
+      }
     }
   }
 
@@ -154,6 +223,10 @@ export class ZeroClawBridge extends EventEmitter {
           }
         } else {
           this.isPaired = result.paired === true;
+          // 如果网关显示已配对但本地没有token，尝试使用已知的默认token
+          if (this.isPaired && !this.bearerToken) {
+            await this.tryKnownTokens();
+          }
         }
         
         console.log('ZeroClaw Gateway is available, paired:', this.isPaired);
@@ -163,6 +236,20 @@ export class ZeroClawBridge extends EventEmitter {
       this.gatewayAvailable = false;
       console.log('ZeroClaw Gateway not available, will need to start manually');
     }
+  }
+
+  /**
+   * 尝试使用已知的token进行认证
+   * 当网关显示已配对但本地没有token时调用
+   */
+  private async tryKnownTokens(): Promise<void> {
+    // 目前我们没有直接的方法从配置获取token，但我们可以检查是否存在已知的配对
+    // 最好的方法是让用户手动设置token或重新配对
+    console.log('Gateway is paired but no local token found, token sync needed');
+    // 在这里我们可以触发一个事件，通知UI需要进行配对同步
+    broadcastToWindows('system:need-token-sync', { 
+      message: 'Gateway is paired but local token not synchronized. Please re-pair or manually set token.' 
+    });
   }
 
   private async verifyToken(): Promise<boolean> {
@@ -580,14 +667,18 @@ export class ZeroClawBridge extends EventEmitter {
   private handleStreamEvent(event: any): void {
     switch (event.type) {
       case 'chunk':
+        // 维护累积状态
+        this.accumulatedContent += event.text || '';
         // Send both content and accumulated for frontend compatibility
         broadcastToWindows('chat:stream-chunk', { 
           sessionId: this.currentSessionId, 
           content: event.text,
-          accumulated: event.text, // For compatibility with useChat.ts
+          accumulated: this.accumulatedContent,
         });
         break;
       case 'done':
+        // 重置累积状态
+        this.accumulatedContent = '';
         const assistantMessage: Message = {
           role: 'assistant',
           content: event.response,
@@ -598,6 +689,8 @@ export class ZeroClawBridge extends EventEmitter {
         broadcastToWindows('chat:stream-end', { sessionId: this.currentSessionId });
         break;
       case 'error':
+        // 重置累积状态
+        this.accumulatedContent = '';
         broadcastToWindows('chat:stream-end', { 
           sessionId: this.currentSessionId, 
           error: event.message 
@@ -673,22 +766,6 @@ export class ZeroClawBridge extends EventEmitter {
     }
 
     return { success: false };
-  }
-
-  async listSwarmTasks(): Promise<any[]> {
-    return this.db.listSwarmTasks();
-  }
-
-  async getSwarmTask(taskId: string): Promise<any> {
-    return this.db.getSwarmTask(taskId);
-  }
-
-  async getSwarmMessages(runId?: string, taskId?: string, limit?: number): Promise<any[]> {
-    return this.db.getSwarmMessages(runId, taskId, limit || 100);
-  }
-
-  async getConsensusState(taskId: string): Promise<any> {
-    return this.db.getConsensusState(taskId);
   }
 
   async listWorkflows(): Promise<any[]> {
@@ -850,7 +927,16 @@ export class ZeroClawBridge extends EventEmitter {
     if (this.gatewayAvailable) {
       try {
         const result = await this.gatewayRequest('GET', '/soul/templates');
-        return result.templates || [];
+        // 后端直接返回数组，也可能包装在 templates 字段中
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.templates)) {
+            return result.templates;
+          }
+        }
+        return this.getDefaultSoulTemplates();
       } catch {
         return this.getDefaultSoulTemplates();
       }
@@ -1076,10 +1162,21 @@ export class ZeroClawBridge extends EventEmitter {
     ];
   }
 
-  getStatus(): any {
+  async getStatus(): Promise<any> {
+    let gatewayHealth = null;
+    if (this.gatewayAvailable) {
+      try {
+        gatewayHealth = await this.gatewayRequest('GET', '/health');
+      } catch (err) {
+        console.error('Failed to fetch gateway health:', err);
+        gatewayHealth = null;
+      }
+    }
+    
     return {
       running: this.isRunning,
       gatewayAvailable: this.gatewayAvailable,
+      gatewayHealth: gatewayHealth,
       sessionId: this.currentSessionId,
       workspaceDir: this.workspaceDir,
     };
@@ -1096,17 +1193,42 @@ export class ZeroClawBridge extends EventEmitter {
     return { enabled: false, total_tokens: 0, total_cost_usd: 0 };
   }
 
-  // ============ MCP Server API ============
-
-  async listMCPServers(): Promise<any> {
+  async getCostDaily(): Promise<any> {
     if (this.gatewayAvailable) {
       try {
-        return await this.gatewayRequest('GET', '/mcp/servers');
+        return await this.gatewayRequest('GET', '/cost/daily');
       } catch {
-        return { servers: [], total: 0 };
+        return { enabled: false, daily_costs: [] };
       }
     }
-    return { servers: [], total: 0 };
+    return { enabled: false, daily_costs: [] };
+  }
+
+  // ============ MCP Server API ============
+
+  /**
+   * 列出 MCP 服务器
+   * 返回服务器数组，统一数据格式
+   */
+  async listMCPServers(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/mcp/servers');
+        // 后端返回 { servers: [...], total: number }，提取 servers 数组
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.servers)) {
+            return result.servers;
+          }
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
   }
 
   async createMCPServer(request: any): Promise<any> {
@@ -1156,6 +1278,228 @@ export class ZeroClawBridge extends EventEmitter {
       return await this.gatewayRequest('GET', `/mcp/servers/${id}/tools`);
     }
     return { tools: [] };
+  }
+
+  // ============ Agent Groups API ============
+
+  async listAgentGroups(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/agent-groups');
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  async createAgentGroup(group: any): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', '/agent-groups', group);
+      } catch (e) {
+        console.error('[Bridge] Failed to create agent group:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async getAgentGroup(id: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/agent-groups/${id}`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async updateAgentGroup(id: string, data: any): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('PUT', `/agent-groups/${id}`, data);
+      } catch (e) {
+        console.error('[Bridge] Failed to update agent group:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async deleteAgentGroup(id: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('DELETE', `/agent-groups/${id}`);
+      } catch (e) {
+        console.error('[Bridge] Failed to delete agent group:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  // ============ Role Mappings API ============
+
+  async listRoleMappings(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/role-mappings');
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  async createRoleMapping(mapping: any): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', '/role-mappings', mapping);
+      } catch (e) {
+        console.error('[Bridge] Failed to create role mapping:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async getRoleMapping(role: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/role-mappings/${role}`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async updateRoleMapping(role: string, data: any): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('PUT', `/role-mappings/${role}`, data);
+      } catch (e) {
+        console.error('[Bridge] Failed to update role mapping:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async deleteRoleMapping(role: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('DELETE', `/role-mappings/${role}`);
+      } catch (e) {
+        console.error('[Bridge] Failed to delete role mapping:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  // ============ Swarm API ============
+
+  async listSwarmTasks(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/swarm/tasks');
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  async createSwarmTask(task: string, agentName?: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', '/swarm/tasks', { task, agent_name: agentName });
+      } catch (e) {
+        console.error('[Bridge] Failed to create swarm task:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async getSwarmTask(id: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/swarm/tasks/${id}`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async deleteSwarmTask(id: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('DELETE', `/swarm/tasks/${id}`);
+      } catch (e) {
+        console.error('[Bridge] Failed to delete swarm task:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async listSwarmMessages(taskId: string): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/swarm/tasks/${taskId}/messages`);
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  async sendSwarmMessage(taskId: string, content: string, sender: string, messageType?: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', `/swarm/tasks/${taskId}/messages`, { 
+          content, 
+          sender,
+          message_type: messageType 
+        });
+      } catch (e) {
+        console.error('[Bridge] Failed to send swarm message:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  async getSwarmConsensus(taskId: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/swarm/tasks/${taskId}/consensus`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  async submitSwarmVote(taskId: string, voter: string, vote: boolean): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', `/swarm/tasks/${taskId}/consensus`, { voter, vote });
+      } catch (e) {
+        console.error('[Bridge] Failed to submit swarm vote:', e);
+        return { success: false, error: String(e) };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
   }
 
   // ============ Prompt Optimization API ============
@@ -1381,6 +1725,234 @@ export class ZeroClawBridge extends EventEmitter {
       fullInjectionTypes: ['conversation', 'creative'],
       identityOnlyTypes: ['complex', 'technical', 'orchestrator'],
       noInjectionTypes: ['quick', 'simple', 'standard'],
+    };
+  }
+
+  // ============ Observability API ============
+
+  /**
+   * 获取轨迹列表
+   * @param query 查询参数
+   * 返回轨迹数组，统一数据格式
+   */
+  async listTraces(query: any): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/observability/traces/list', query);
+        // 后端返回 { traces: [...] }，提取 traces 数组
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.traces)) {
+            return result.traces;
+          }
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 获取单条轨迹详情
+   * @param id 轨迹 ID
+   */
+  async getTrace(id: string): Promise<any | null> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/observability/traces/${id}`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 获取轨迹的推理链
+   * @param traceId 轨迹 ID
+   */
+  async getReasoning(traceId: string): Promise<any | null> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/observability/traces/${traceId}/reasoning`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 获取轨迹的决策点列表
+   * @param traceId 轨迹 ID
+   * 返回决策点数组，统一数据格式
+   */
+  async getDecisions(traceId: string): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/observability/traces/${traceId}/decisions`);
+        // 后端返回 { decisions: [...] }，提取 decisions 数组
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.decisions)) {
+            return result.decisions;
+          }
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 获取轨迹的评估结果
+   * @param traceId 轨迹 ID
+   */
+  async getEvaluation(traceId: string): Promise<any | null> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/observability/traces/${traceId}/evaluation`);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 评估轨迹
+   * @param traceId 轨迹 ID
+   */
+  async evaluateTrace(traceId: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      return await this.gatewayRequest('POST', `/observability/traces/${traceId}/evaluate`);
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  /**
+   * 聚合查询
+   * @param query 聚合查询参数
+   */
+  async aggregateObservability(query: any): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', '/observability/aggregate', query);
+      } catch {
+        return { type: 'unknown' };
+      }
+    }
+    return { type: 'unknown' };
+  }
+
+  /**
+   * 获取仪表板统计数据
+   * @param timeRange 时间范围
+   */
+  async getDashboardStats(timeRange: string): Promise<any> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('GET', `/observability/dashboard?range=${timeRange}`);
+      } catch {
+        return this.getDefaultDashboardStats();
+      }
+    }
+    return this.getDefaultDashboardStats();
+  }
+
+  /**
+   * 获取告警列表
+   * @param limit 限制数量
+   * 返回告警数组，统一数据格式
+   */
+  async getAlerts(limit: number): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/observability/alerts?limit=${limit}`);
+        // 后端返回 { alerts: [...], total: number }，提取 alerts 数组
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.alerts)) {
+            return result.alerts;
+          }
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 忽略告警
+   * @param id 告警 ID
+   */
+  async dismissAlert(id: string): Promise<{ success: boolean }> {
+    if (this.gatewayAvailable) {
+      try {
+        return await this.gatewayRequest('POST', `/observability/alerts/${id}/dismiss`);
+      } catch {
+        return { success: false };
+      }
+    }
+    return { success: false };
+  }
+
+  /**
+   * 获取失败模式列表
+   * 返回失败模式数组，统一数据格式
+   */
+  async getFailurePatterns(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/observability/failure-patterns');
+        // 后端返回 { patterns: [...] }，提取 patterns 数组
+        if (result && typeof result === 'object') {
+          if (Array.isArray(result)) {
+            return result;
+          }
+          if (Array.isArray(result.patterns)) {
+            return result.patterns;
+          }
+        }
+        return [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 获取默认仪表板统计数据
+   */
+  private getDefaultDashboardStats(): any {
+    return {
+      totalTraces: 0,
+      successRate: 0,
+      avgDurationMs: 0,
+      totalCost: 0,
+      tracesTrend: 0,
+      successRateTrend: 0,
+      durationTrend: 0,
+      costTrend: 0,
+      traceTrend: [],
+      successRateTrendData: [],
+      decisionQualityDistribution: [],
+      toolUsage: [],
+      alerts: [],
+      failurePatterns: [],
     };
   }
 }

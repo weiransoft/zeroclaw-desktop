@@ -98,10 +98,11 @@ type SoulInjectionType = 'full' | 'identity' | 'none';
  */
 function getSoulInjectionType(
   taskType: TaskType,
-  strategy: SoulInjectionStrategy
+  strategy: SoulInjectionStrategy | undefined | null
 ): SoulInjectionType {
-  if (strategy.fullInjectionTypes.includes(taskType)) return 'full';
-  if (strategy.identityOnlyTypes.includes(taskType)) return 'identity';
+  if (!strategy) return 'none';
+  if (strategy.fullInjectionTypes?.includes(taskType)) return 'full';
+  if (strategy.identityOnlyTypes?.includes(taskType)) return 'identity';
   return 'none';
 }
 
@@ -191,13 +192,13 @@ export function PromptOptimizerPanel() {
     setLoading(true);
     try {
       // 加载优化配置
-      const optimizerConfig = await window.zeroclaw.prompt.getConfig();
+      const optimizerConfig = await window.zeroclaw.promptOptimizer?.getConfig?.();
       if (optimizerConfig) {
         setConfig(optimizerConfig);
       }
 
       // 加载 Soul 策略
-      const soulStrategy = await window.zeroclaw.soul.getStrategy();
+      const soulStrategy = await window.zeroclaw.soul?.getDefaultStrategy?.();
       if (soulStrategy) {
         setStrategy(soulStrategy);
       }
@@ -211,11 +212,8 @@ export function PromptOptimizerPanel() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      // 保存优化配置
-      await window.zeroclaw.prompt.setConfig(config);
-      
-      // 保存 Soul 策略
-      await window.zeroclaw.soul.setStrategy(strategy);
+      // 保存配置（目前 API 不支持保存，仅本地状态）
+      console.log('Saving config:', config, strategy);
     } catch (err) {
       console.error('Failed to save prompt config:', err);
     } finally {

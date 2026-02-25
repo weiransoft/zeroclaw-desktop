@@ -77,6 +77,7 @@ export interface AgentConfig {
   maxDepth: number;
   enabled: boolean;
   fromConfig?: boolean;
+  soul?: AgentSoul;
 }
 
 export interface AgentGroup {
@@ -456,7 +457,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
         window.zeroclaw.llmProviders.set(providers),
         window.zeroclaw.desktopAgents.set(agents),
         window.zeroclaw.agentGroups.set(agentGroups),
-        window.zeroclaw.soulTemplates?.set(soulTemplates) || Promise.resolve(),
+        // soulTemplates 需要单独保存每个模板
+        ...soulTemplates.map(t => 
+          window.zeroclaw.soulTemplates?.create(t).catch(() => 
+            window.zeroclaw.soulTemplates?.update(t.id, t)
+          )
+        ),
       ]);
     } catch (e) {
       console.error('Failed to save config to database:', e);

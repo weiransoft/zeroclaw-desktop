@@ -53,14 +53,10 @@ export function PairingDialog({ isOpen, onPaired }: PairingDialogProps) {
       return;
     }
 
-    console.log('Setting token...');
     setLoading(true);
     setError(null);
 
     try {
-      console.log('window.zeroclaw:', window.zeroclaw);
-      console.log('window.zeroclaw.system:', window.zeroclaw?.system);
-      
       if (!window.zeroclaw?.system?.setToken) {
         setError('setToken 方法不可用');
         setLoading(false);
@@ -68,14 +64,13 @@ export function PairingDialog({ isOpen, onPaired }: PairingDialogProps) {
       }
       
       const result = await window.zeroclaw.system.setToken(token.trim());
-      console.log('setToken result:', result);
       if (result.success) {
         onPaired();
       } else {
         setError(result.message || '设置 Token 失败');
       }
     } catch (err: any) {
-      console.error('setToken error:', err);
+      // 安全：不输出敏感错误信息
       setError(err.message || '设置 Token 失败');
     } finally {
       setLoading(false);

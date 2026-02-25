@@ -126,7 +126,7 @@ export function SearchPanel() {
 
     try {
       const defaultResult = await window.electron?.invoke('clawhub:search', '', { limit: 10 });
-      if (defaultResult && defaultResult.skills.length > 0) {
+      if (defaultResult && defaultResult.skills && defaultResult.skills.length > 0) {
         setResults(defaultResult);
       }
     } catch (error) {

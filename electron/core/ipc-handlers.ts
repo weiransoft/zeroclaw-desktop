@@ -149,11 +149,14 @@ export function setupIpcHandlers(bridge: ZeroClawBridge, db: Database) {
   });
 
   ipcMain.handle('swarm:messages', async (_, runId?: string, taskId?: string, limit?: number) => {
-    return bridge.getSwarmMessages(runId, taskId, limit);
+    if (!taskId) {
+      return [];
+    }
+    return bridge.listSwarmMessages(taskId);
   });
 
   ipcMain.handle('swarm:consensus', async (_, taskId: string) => {
-    return bridge.getConsensusState(taskId);
+    return bridge.getSwarmConsensus(taskId);
   });
 
   // ============ Workflow API ============
@@ -427,24 +430,67 @@ export function setupIpcHandlers(bridge: ZeroClawBridge, db: Database) {
   // ============ Agent Groups API ============
 
   ipcMain.handle('agent-groups:list', async () => {
-    return db.getAgentGroups();
+    const localGroups = db.getAgentGroups();
+    try {
+      const gatewayGroups = await bridge.listAgentGroups();
+      if (gatewayGroups.length > 0) {
+        return gatewayGroups;
+      }
+    } catch (e) {
+      console.log('[IPC] Gateway agent-groups unavailable, using local');
+    }
+    return localGroups;
   });
 
   ipcMain.handle('agent-groups:set', async (_, groups: any[]) => {
-    return db.setAgentGroups(groups);
+    db.setAgentGroups(groups);
+    for (const group of groups) {
+      await bridge.createAgentGroup(group);
+    }
+    return { success: true };
   });
 
   ipcMain.handle('agent-groups:add', async (_, group: any) => {
-    return db.addAgentGroup(group);
+    db.addAgentGroup(group);
+    const result = await bridge.createAgentGroup(group);
+    return result;
   });
 
   ipcMain.handle('agent-groups:update', async (_, id: string, data: any) => {
-    return db.updateAgentGroup(id, data);
+    db.updateAgentGroup(id, data);
+    const result = await bridge.updateAgentGroup(id, data);
+    return result;
   });
 
   ipcMain.handle('agent-groups:remove', async (_, id: string) => {
-    return db.removeAgentGroup(id);
+    db.removeAgentGroup(id);
+    const result = await bridge.deleteAgentGroup(id);
+    return result;
   });
+
+  // ============ Role Mappings API ============
+
+  ipcMain.handle('role-mappings:list', async () => {
+    return bridge.listRoleMappings();
+  });
+
+  ipcMain.handle('role-mappings:create', async (_, mapping: any) => {
+    return bridge.createRoleMapping(mapping);
+  });
+
+  ipcMain.handle('role-mappings:get', async (_, role: string) => {
+    return bridge.getRoleMapping(role);
+  });
+
+  ipcMain.handle('role-mappings:update', async (_, role: string, data: any) => {
+    return bridge.updateRoleMapping(role, data);
+  });
+
+  ipcMain.handle('role-mappings:delete', async (_, role: string) => {
+    return bridge.deleteRoleMapping(role);
+  });
+
+
 
   // ============ Prompt Optimization API ============
 
@@ -560,6 +606,89 @@ export function setupIpcHandlers(bridge: ZeroClawBridge, db: Database) {
 
   ipcMain.handle('cost:summary', async () => {
     return bridge.getCostSummary();
+  });
+
+  ipcMain.handle('cost:daily', async () => {
+    return bridge.getCostDaily();
+  });
+
+  // ============ Observability API ============
+
+  /**
+   * 获取轨迹列表
+   */
+  ipcMain.handle('observability:list-traces', async (_, query: any) => {
+    return bridge.listTraces(query);
+  });
+
+  /**
+   * 获取单条轨迹
+   */
+  ipcMain.handle('observability:get-trace', async (_, id: string) => {
+    return bridge.getTrace(id);
+  });
+
+  /**
+   * 获取轨迹的推理链
+   */
+  ipcMain.handle('observability:get-reasoning', async (_, traceId: string) => {
+    return bridge.getReasoning(traceId);
+  });
+
+  /**
+   * 获取轨迹的决策点
+   */
+  ipcMain.handle('observability:get-decisions', async (_, traceId: string) => {
+    return bridge.getDecisions(traceId);
+  });
+
+  /**
+   * 获取轨迹的评估结果
+   */
+  ipcMain.handle('observability:get-evaluation', async (_, traceId: string) => {
+    return bridge.getEvaluation(traceId);
+  });
+
+  /**
+   * 评估轨迹
+   */
+  ipcMain.handle('observability:evaluate-trace', async (_, traceId: string) => {
+    return bridge.evaluateTrace(traceId);
+  });
+
+  /**
+   * 聚合查询
+   */
+  ipcMain.handle('observability:aggregate', async (_, query: any) => {
+    return bridge.aggregateObservability(query);
+  });
+
+  /**
+   * 获取仪表板统计
+   */
+  ipcMain.handle('observability:dashboard-stats', async (_, timeRange: string) => {
+    return bridge.getDashboardStats(timeRange);
+  });
+
+  /**
+   * 获取告警列表
+   */
+  ipcMain.handle('observability:get-alerts', async (_, limit: number) => {
+    return bridge.getAlerts(limit);
+  });
+
+  /**
+   * 忽略告警
+   */
+  ipcMain.handle('observability:dismiss-alert', async (_, id: string) => {
+    return bridge.dismissAlert(id);
+  });
+
+  /**
+   * 获取失败模式
+   */
+  ipcMain.handle('observability:failure-patterns', async () => {
+    return bridge.getFailurePatterns();
   });
 }
 

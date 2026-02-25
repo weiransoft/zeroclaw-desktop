@@ -151,6 +151,14 @@ const api = {
     remove: (id: string) => ipcRenderer.invoke('agent-groups:remove', id),
   },
 
+  roleMappings: {
+    list: () => ipcRenderer.invoke('role-mappings:list'),
+    create: (mapping: any) => ipcRenderer.invoke('role-mappings:create', mapping),
+    get: (role: string) => ipcRenderer.invoke('role-mappings:get', role),
+    update: (role: string, data: any) => ipcRenderer.invoke('role-mappings:update', role, data),
+    delete: (role: string) => ipcRenderer.invoke('role-mappings:delete', role),
+  },
+
   prompt: {
     optimize: (prompt: string, agentName?: string, requirements?: string) => 
       ipcRenderer.invoke('prompt:optimize', prompt, agentName, requirements),
@@ -174,6 +182,7 @@ const api = {
 
   cost: {
     summary: () => ipcRenderer.invoke('cost:summary'),
+    daily: () => ipcRenderer.invoke('cost:daily'),
   },
 
   mcp: {
@@ -196,6 +205,25 @@ const api = {
       const handler = (_: any, maximized: boolean) => callback(maximized);
       ipcRenderer.on('window:maximize-change', handler);
       return () => ipcRenderer.removeListener('window:maximize-change', handler);
+    },
+  },
+
+  observability: {
+    listTraces: (query: any) => ipcRenderer.invoke('observability:list-traces', query),
+    getTrace: (id: string) => ipcRenderer.invoke('observability:get-trace', id),
+    getReasoning: (traceId: string) => ipcRenderer.invoke('observability:get-reasoning', traceId),
+    getDecisions: (traceId: string) => ipcRenderer.invoke('observability:get-decisions', traceId),
+    getEvaluation: (traceId: string) => ipcRenderer.invoke('observability:get-evaluation', traceId),
+    evaluateTrace: (traceId: string) => ipcRenderer.invoke('observability:evaluate-trace', traceId),
+    aggregate: (query: any) => ipcRenderer.invoke('observability:aggregate', query),
+    getDashboardStats: (timeRange: string) => ipcRenderer.invoke('observability:dashboard-stats', timeRange),
+    getAlerts: (limit: number) => ipcRenderer.invoke('observability:get-alerts', limit),
+    dismissAlert: (id: string) => ipcRenderer.invoke('observability:dismiss-alert', id),
+    getFailurePatterns: () => ipcRenderer.invoke('observability:failure-patterns'),
+    onNewTrace: (callback: (trace: any) => void) => {
+      const handler = (_: any, trace: any) => callback(trace);
+      ipcRenderer.on('observability:new-trace', handler);
+      return () => ipcRenderer.removeListener('observability:new-trace', handler);
     },
   },
 

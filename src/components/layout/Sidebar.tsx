@@ -1,5 +1,11 @@
 import { ReactNode } from 'react';
-import { MessageSquare, Users, GitBranch, Settings, Menu, Package } from 'lucide-react';
+import { MessageSquare, Users,
+  GitBranch,
+  Settings,
+  Menu,
+  Package,
+  Activity,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -12,7 +18,7 @@ const navItems = [
   { id: 'chat', label: '对话', icon: MessageSquare },
   { id: 'swarm', label: '智能体', icon: Users },
   { id: 'workflow', label: '工作流', icon: GitBranch },
-  { id: 'clawhub', label: '技能市场', icon: Package },
+  { id: 'observability', label: '可观测', icon: Activity },
   { id: 'settings', label: '设置', icon: Settings },
 ];
 

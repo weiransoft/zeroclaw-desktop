@@ -29,7 +29,8 @@ function AgentConfigEditor({ agent, providers, isEditing, onStartEdit, onCancelE
   const selectedProvider = providers.find(p => p.id === (isEditing ? edited.providerId : agent.providerId));
 
   const handleOptimize = async (prompt: string, requirements: string) => {
-    return window.zeroclaw.prompt.optimize(prompt, edited.name, requirements);
+    return window.zeroclaw.promptOptimizer?.optimize(prompt, edited.name, requirements) 
+      || { success: false, error: 'Prompt optimizer not available' };
   };
 
   const handleApplyOptimized = (optimizedPrompt: string) => {

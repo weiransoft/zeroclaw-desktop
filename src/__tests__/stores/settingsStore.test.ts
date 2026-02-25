@@ -161,7 +161,7 @@ describe('SettingsStore', () => {
     });
 
     it('应该支持所有有效的语言', () => {
-      const languages = ['en', 'zh'];
+      const languages: Array<'en' | 'zh'> = ['en', 'zh'];
 
       languages.forEach(language => {
         useSettingsStore.getState().setConfig({ language });

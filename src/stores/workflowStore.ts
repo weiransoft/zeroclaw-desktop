@@ -10,7 +10,7 @@ interface WorkflowStore {
   // Actions
   setWorkflows: (workflows: Workflow[]) => void;
   addWorkflow: (workflow: Workflow) => void;
-  updateWorkflow: (workflow: Workflow) => void;
+  updateWorkflow: (workflow: Partial<Workflow> & { id: string }) => void;
   upsertWorkflow: (workflow: Workflow) => void;
   removeWorkflow: (id: string) => void;
   setTemplates: (templates: WorkflowTemplate[]) => void;
@@ -32,11 +32,11 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
     const exists = state.workflows.some(w => w.id === workflow.id);
     if (exists) {
       return {
-        workflows: state.workflows.map((w) => w.id === workflow.id ? workflow : w)
+        workflows: state.workflows.map((w) => w.id === workflow.id ? { ...w, ...workflow } as Workflow : w)
       };
     } else {
       return {
-        workflows: [workflow, ...state.workflows]
+        workflows: [{ ...workflow, name: workflow.name || '', description: workflow.description || '', status: workflow.status || 'created', roles: workflow.roles || [], steps: workflow.steps || [], createdAt: workflow.createdAt || Date.now(), updatedAt: workflow.updatedAt || Date.now() } as Workflow, ...state.workflows]
       };
     }
   }),

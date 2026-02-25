@@ -4,6 +4,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +78,9 @@ export function NewChatDialog({ open, onClose, onCreateSession }: NewChatDialogP
       <DialogContent className="sm:max-w-[500px] bg-dark-800 border-dark-600">
         <DialogHeader>
           <DialogTitle className="text-dark-100">新建对话</DialogTitle>
+          <DialogDescription className="text-dark-400">
+            选择一个智能体或群组开始新对话
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">

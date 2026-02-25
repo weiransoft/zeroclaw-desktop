@@ -378,7 +378,6 @@ export function TeamMembersConfig({
               key={member.id}
               member={member}
               agents={agents}
-              soulTemplates={soulTemplates}
               onUpdate={(m) => updateMember(index, m)}
               onRemove={() => removeMember(index)}
             />

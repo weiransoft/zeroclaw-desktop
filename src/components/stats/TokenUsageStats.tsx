@@ -12,6 +12,11 @@ interface CostSummary {
   request_count: number;
   session_duration_secs: number;
   by_model: Record<string, number>;
+  daily_data?: Array<{
+    date: string;
+    cost: number;
+    tokens: number;
+  }>;
 }
 
 export function TokenUsageStats() {
@@ -21,10 +26,20 @@ export function TokenUsageStats() {
   const loadSummary = async () => {
     setLoading(true);
     try {
-      const data = await window.zeroclaw.cost.summary();
-      setSummary(data);
+      const [summaryData, dailyData] = await Promise.all([
+        window.zeroclaw.cost.summary(),
+        window.zeroclaw.cost.daily()
+      ]);
+      
+      // 合并数据
+      const combinedData = {
+        ...summaryData,
+        daily_data: dailyData?.daily_costs || []
+      };
+      
+      setSummary(combinedData);
     } catch (err) {
-      console.error('Failed to load cost summary:', err);
+      console.error('Failed to load cost data:', err);
     } finally {
       setLoading(false);
     }
@@ -134,6 +149,23 @@ export function TokenUsageStats() {
                     <div key={model} className="flex justify-between text-xs">
                       <span className="text-dark-400">{model}</span>
                       <span className="text-dark-200">{formatCost(cost as number)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {summary.daily_data && summary.daily_data.length > 0 && (
+              <div className="pt-2 border-t border-dark-700">
+                <div className="text-xs text-dark-400 mb-2">每日成本趋势</div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {summary.daily_data.slice(0, 7).map((day, index) => (
+                    <div key={index} className="flex justify-between text-xs">
+                      <span className="text-dark-400">{day.date}</span>
+                      <div className="text-right">
+                        <div className="text-dark-200">{formatCost(day.cost)}</div>
+                        <div className="text-xs text-dark-500">{formatTokens(day.tokens)} tokens</div>
+                      </div>
                     </div>
                   ))}
                 </div>

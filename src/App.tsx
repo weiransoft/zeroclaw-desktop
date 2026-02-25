@@ -6,8 +6,8 @@ import { ChatView } from '@/components/chat/ChatView';
 import { SwarmView } from '@/components/swarm/SwarmView';
 import { WorkflowView } from '@/components/workflow/WorkflowView';
 import { SettingsView } from '@/components/settings/SettingsView';
+import { ObservabilityDashboard } from '@/components/observability/ObservabilityDashboard';
 import { PairingDialog } from '@/components/settings/PairingDialog';
-import { ClawHubPanel } from '@/components/clawhub';
 
 function App() {
   const [activeTab, setActiveTab] = useState('chat');
@@ -49,8 +49,8 @@ function App() {
         return <SwarmView />;
       case 'workflow':
         return <WorkflowView />;
-      case 'clawhub':
-        return <ClawHubPanel />;
+      case 'observability':
+        return <ObservabilityDashboard />;
       case 'settings':
         return <SettingsView />;
       default:

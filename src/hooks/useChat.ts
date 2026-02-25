@@ -89,7 +89,7 @@ export function useChat() {
         unsubscribe();
       }
     };
-  }, []);
+  }, [setStreamingContent]);
 
   useEffect(() => {
     const onStreamEnd = window.zeroclaw.chat.onStreamEnd;

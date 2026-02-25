@@ -81,10 +81,13 @@ export function MCPServerList() {
   const loadServers = async () => {
     setLoading(true);
     try {
-      const result = await window.zeroclaw.mcp.list();
-      setServers(result.servers || []);
+      // 使用正确的 API 方法名
+      const result = await window.zeroclaw.mcp?.list?.() || [];
+      // API 返回数组，确保处理正确
+      setServers(Array.isArray(result) ? result : []);
     } catch (err) {
       console.error('Failed to load MCP servers:', err);
+      setServers([]);
     } finally {
       setLoading(false);
     }
@@ -125,9 +128,9 @@ export function MCPServerList() {
 
     try {
       if (editingServer) {
-        await window.zeroclaw.mcp.update(editingServer.id, request);
+        await window.zeroclaw.mcp?.update?.(editingServer.id, request);
       } else {
-        await window.zeroclaw.mcp.create(request);
+        await window.zeroclaw.mcp?.create?.(request);
       }
       setDialogOpen(false);
       loadServers();
@@ -139,7 +142,7 @@ export function MCPServerList() {
   const handleDelete = async (id: string) => {
     if (confirm('确定要删除此服务器吗？')) {
       try {
-        await window.zeroclaw.mcp.delete(id);
+        await window.zeroclaw.mcp?.delete?.(id);
         loadServers();
       } catch (err) {
         console.error('Failed to delete MCP server:', err);
@@ -149,7 +152,7 @@ export function MCPServerList() {
 
   const handleStart = async (id: string) => {
     try {
-      await window.zeroclaw.mcp.start(id);
+      await window.zeroclaw.mcp?.start?.(id);
       loadServers();
     } catch (err) {
       console.error('Failed to start MCP server:', err);
@@ -158,7 +161,7 @@ export function MCPServerList() {
 
   const handleStop = async (id: string) => {
     try {
-      await window.zeroclaw.mcp.stop(id);
+      await window.zeroclaw.mcp?.stop?.(id);
       loadServers();
     } catch (err) {
       console.error('Failed to stop MCP server:', err);

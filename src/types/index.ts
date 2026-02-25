@@ -102,6 +102,8 @@ export interface WorkflowTemplate {
   description: string;
   author: string;
   createdAt: number;
+  roles?: string[];
+  steps?: WorkflowStep[];
 }
 
 export interface SystemStatus {
@@ -380,4 +382,30 @@ export interface SoulConfig {
   preset: string;
   /** 注入策略 */
   injectionStrategy: SoulInjectionStrategy;
+}
+
+// ============ Agent Config Types ============
+
+/**
+ * 智能体配置
+ */
+export interface AgentConfig {
+  /** 智能体名称 */
+  name: string;
+  /** 智能体描述 */
+  description?: string;
+  /** 系统提示词 */
+  systemPrompt?: string;
+  /** 使用的模型 */
+  model?: string;
+  /** 温度参数 */
+  temperature?: number;
+  /** 最大 token 数 */
+  maxTokens?: number;
+  /** 工具列表 */
+  tools?: string[];
+  /** Soul 配置 */
+  soul?: SoulConfig;
+  /** 是否启用 */
+  enabled?: boolean;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useSwarmStore } from '@/stores/swarmStore';
 import { SwarmMessage, SwarmTask, ConsensusState } from '@/types';
 
@@ -20,6 +20,12 @@ export function useSwarm() {
   } = useSwarmStore();
 
   const [streamingMessage, setStreamingMessage] = useState<{ author: string; content: string } | null>(null);
+  const streamingMessageRef = useRef<{ author: string; content: string } | null>(null);
+
+  // 保持 ref 与 state 同步
+  useEffect(() => {
+    streamingMessageRef.current = streamingMessage;
+  }, [streamingMessage]);
 
   useEffect(() => {
     loadTasks();
@@ -31,30 +37,36 @@ export function useSwarm() {
       setStreamingMessage(null);
     });
 
-    return unsubscribe;
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
   }, [addMessage]);
 
   useEffect(() => {
     const unsubscribe = window.zeroclaw.swarm.onTaskUpdate((task) => {
       const swarmTask = task as SwarmTask;
-      const existingTask = tasks.find(t => t.id === swarmTask.id);
-      
-      if (existingTask) {
-        updateTask(swarmTask);
-      } else {
-        addTask(swarmTask);
-      }
+      updateTask(swarmTask);
     });
 
-    return unsubscribe;
-  }, [tasks, addTask, updateTask]);
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [updateTask]);
 
   useEffect(() => {
     const unsubscribe = window.zeroclaw.swarm.onConsensus((state) => {
       setConsensus(state as ConsensusState);
     });
 
-    return unsubscribe;
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
   }, [setConsensus]);
 
   useEffect(() => {
@@ -65,21 +77,26 @@ export function useSwarm() {
     });
 
     return () => {
-      unsubscribe?.();
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, []);
 
   useEffect(() => {
     const unsubscribe = window.zeroclaw.chat.onStreamChunk?.((data) => {
-      if (data.accumulated && streamingMessage) {
-        setStreamingMessage({ ...streamingMessage, content: data.accumulated });
+      // 使用 ref 获取最新值，避免依赖 streamingMessage 导致重复订阅
+      if (data.accumulated && streamingMessageRef.current) {
+        setStreamingMessage({ ...streamingMessageRef.current, content: data.accumulated });
       }
     });
 
     return () => {
-      unsubscribe?.();
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
-  }, [streamingMessage]);
+  }, []);
 
   useEffect(() => {
     const unsubscribe = window.zeroclaw.chat.onStreamEnd?.(() => {
@@ -87,7 +104,9 @@ export function useSwarm() {
     });
 
     return () => {
-      unsubscribe?.();
+      if (unsubscribe) {
+        unsubscribe();
+      }
     };
   }, []);
 

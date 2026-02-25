@@ -52,10 +52,11 @@ export function useWorkflow() {
 
   const loadTemplates = useCallback(async () => {
     try {
-      const list = await window.zeroclaw.workflow.templates.list();
-      setTemplates(list);
+      const list = await window.zeroclaw.workflow.templates?.list?.() || [];
+      setTemplates(Array.isArray(list) ? list : []);
     } catch (err) {
       console.error('Failed to load templates:', err);
+      setTemplates([]);
     }
   }, [setTemplates]);
 

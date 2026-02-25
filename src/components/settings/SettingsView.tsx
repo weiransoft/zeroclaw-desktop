@@ -294,9 +294,6 @@ export function SettingsView() {
                       onClick={async () => {
                         const input = document.getElementById('token-input') as HTMLInputElement;
                         const token = input?.value;
-                        console.log('Token input submitted');
-                        console.log('window.zeroclaw:', window.zeroclaw);
-                        console.log('window.zeroclaw.system:', window.zeroclaw?.system);
                         
                         if (!token) {
                           setLogs((prev) => [...prev, { level: 'error', message: '请输入 Token', timestamp: Date.now() }]);
@@ -309,9 +306,7 @@ export function SettingsView() {
                         }
                         
                         try {
-                          console.log('Calling setToken...');
                           const result = await window.zeroclaw.system.setToken(token);
-                          console.log('setToken result:', result);
                           if (result.success) {
                             setLogs((prev) => [...prev, { level: 'info', message: 'Token 设置成功', timestamp: Date.now() }]);
                             loadStatus();
@@ -319,8 +314,8 @@ export function SettingsView() {
                             setLogs((prev) => [...prev, { level: 'error', message: result.message, timestamp: Date.now() }]);
                           }
                         } catch (err) {
-                          console.error('setToken error:', err);
-                          setLogs((prev) => [...prev, { level: 'error', message: `Token 设置失败: ${err}`, timestamp: Date.now() }]);
+                          // 安全：不输出敏感错误信息到控制台
+                          setLogs((prev) => [...prev, { level: 'error', message: `Token 设置失败`, timestamp: Date.now() }]);
                         }
                       }}
                     >
