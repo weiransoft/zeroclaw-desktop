@@ -1,0 +1,33 @@
+name: "📚 文档更新"
+description: "报告文档问题或请求文档更新"
+title: "📚 [Docs]: "
+labels: ["documentation"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: "感谢您帮助我们改进文档！"
+  - type: input
+    id: page
+    attributes:
+      label: "文档页面"
+      placeholder: "例如: README.md, CONTRIBUTING.md"
+    validations:
+      required: true
+  - type: textarea
+    id: issue
+    attributes:
+      label: "问题描述"
+      placeholder: "描述文档中的问题"
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: "改进建议"
+      placeholder: "如何改进文档"
+  - type: textarea
+    id: additional
+    attributes:
+      label: "额外信息"
+      placeholder: "任何其他相关信息"

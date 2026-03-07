@@ -1,0 +1,55 @@
+name: "🚀 Pull Request"
+description: "提交 Pull Request"
+title: "🚀 [PR]: "
+labels: ["pr"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: "感谢您提交 Pull Request！"
+  - type: textarea
+    id: description
+    attributes:
+      label: "描述"
+      placeholder: "简要描述 PR 的内容"
+    validations:
+      required: true
+  - type: input
+    id: issue
+    attributes:
+      label: "相关 Issue"
+      placeholder: "例如: Closes #123"
+  - type: dropdown
+    id: type
+    attributes:
+      label: "类型"
+      options:
+        - Bug 修复 (Fix)
+        - 新功能 (Feature)
+        - 文档更新 (Documentation)
+        - 代码重构 (Refactor)
+        - 测试相关 (Test)
+        - 其他 (Other)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "检查清单"
+      options:
+        - label: "代码已测试"
+        - label: "文档已更新"
+        - label: "代码符合规范 (ESLint, Prettier)"
+        - label: "无编译错误"
+        - label: "无类型错误"
+        - label: "测试覆盖率 >= 80%"
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "截图/视频"
+      description: "如果适用，添加截图或视频来展示更改"
+  - type: textarea
+    id: additional
+    attributes:
+      label: "额外信息"
+      placeholder: "任何其他相关信息"

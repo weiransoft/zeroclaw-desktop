@@ -1,0 +1,19 @@
+# 代码所有者
+
+# 核心团队
+* @volt-agent/zeroclaw-core-team
+
+# 文档
+docs/ @volt-agent/zeroclaw-docs-team
+
+# 测试
+tests/ @volt-agent/zeroclaw-qa-team
+
+# Electron 主进程
+electron/ @volt-agent/zeroclaw-desktop-team
+
+# 前端代码
+src/ @volt-agent/zeroclaw-frontend-team
+
+# 配置文件
+*.json *.yml *.yaml @volt-agent/zeroclaw-maintainers

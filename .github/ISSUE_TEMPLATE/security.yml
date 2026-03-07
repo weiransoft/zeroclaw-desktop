@@ -1,0 +1,31 @@
+name: "🛡️ 安全问题"
+description: "报告安全漏洞"
+title: "🛡️ [Security]: "
+labels: ["security"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: "感谢您帮助我们提高安全性！请通过邮件联系我们: security@zeroclaw.io"
+  - type: textarea
+    id: vulnerability
+    attributes:
+      label: "漏洞描述"
+      placeholder: "清晰简洁地描述安全漏洞"
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: "影响范围"
+      placeholder: "可能影响的版本和功能"
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: "重现步骤"
+      placeholder: "如何重现漏洞"
+  - type: textarea
+    id: additional
+    attributes:
+      label: "额外信息"
+      placeholder: "任何其他相关信息"

@@ -1,0 +1,13 @@
+# Issue 模板配置
+
+blank_issues_enabled: true
+contact_links:
+  - name: "💬 讨论"
+    url: "https://github.com/volt-agent/zeroclaw-desktop/discussions"
+    about: "在 GitHub Discussions 中讨论想法和问题"
+  - name: "📧 联系我们"
+    url: "mailto:support@zeroclaw.io"
+    about: "通过邮件联系我们"
+  - name: "🐦 Twitter"
+    url: "https://twitter.com/zeroclaw_io"
+    about: "关注我们的 Twitter"

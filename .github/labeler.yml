@@ -1,0 +1,56 @@
+# 自动标签配置
+
+# 文档相关
+documentation:
+  - any: ['*.md', 'docs/**/*']
+    - 'docs'
+
+# 测试相关
+tests:
+  - any: ['**/*.test.*', '**/*.spec.*', 'tests/**/*', '__tests__/**/*']
+    - 'test'
+
+# Electron 相关
+electron:
+  - any: ['electron/**/*', 'main.ts', 'preload.ts']
+    - 'electron'
+
+# 前端相关
+frontend:
+  - any: ['src/**/*', 'components/**/*', 'hooks/**/*', 'stores/**/*']
+    - 'frontend'
+
+# 后端相关
+backend:
+  - any: ['core/**/*', 'services/**/*', 'store/**/*']
+    - 'backend'
+
+# Bug
+bug:
+  - any: ['**/bug/**/*', '**/fix/**/*']
+    - 'bug'
+
+# 新功能
+feature:
+  - any: ['**/feature/**/*', '**/feat/**/*']
+    - 'feature'
+
+# 重构
+refactor:
+  - any: ['**/refactor/**/*']
+    - 'refactor'
+
+# 性能优化
+performance:
+  - any: ['**/perf/**/*', '**/optimize/**/*']
+    - 'performance'
+
+# 安全
+security:
+  - any: ['**/security/**/*', '**/secure/**/*']
+    - 'security'
+
+# 依赖更新
+dependencies:
+  - any: ['package.json', 'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml']
+    - 'dependencies'

@@ -1,0 +1,64 @@
+# Git 属性配置
+
+# 文本文件
+* text=auto eol=lf
+
+# Markdown 文件
+*.md text eol=lf
+
+# 配置文件
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.xml text eol=lf
+
+# TypeScript 文件
+*.ts text eol=lf
+*.tsx text eol=lf
+
+# JavaScript 文件
+*.js text eol=lf
+*.jsx text eol=lf
+
+# CSS 文件
+*.css text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+
+# 图片文件（二进制）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg binary
+*.ico binary
+
+# 字体文件（二进制）
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+
+# 可执行文件（二进制）
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+
+# 压缩文件（二进制）
+*.zip binary
+*.tar binary
+*.tar.gz binary
+*.tgz binary
+*.rar binary
+*.7z binary
+
+# 构建输出（不提交）
+dist/* linguist-generated=true
+node_modules/ linguist-generated=true
+coverage/ linguist-generated=true
+
+# LFS 文件（大文件）
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
+*.avi filter=lfs diff=lfs merge=lfs -text

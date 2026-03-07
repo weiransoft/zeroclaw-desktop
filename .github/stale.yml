@@ -1,0 +1,49 @@
+# 过期 issue 和 PR 管理
+
+# Issue 过期设置
+issues:
+  # 标记为过期的天数
+  daysUntilStale: 60
+  # 过期时的标签
+  staleLabel: "stale"
+  # 过期时的评论
+  markComment: >
+    This issue has been automatically marked as stale because it has not had
+    recent activity. It will be closed if no further activity occurs. Thank you
+    for your contributions.
+  # 关闭的天数
+  daysUntilClose: 14
+  # 忽略的标签
+  exemptLabels:
+    - "bug"
+    - "feature"
+    - "enhancement"
+    - "priority"
+    - "security"
+
+# PR 过期设置
+pulls:
+  # 标记为过期的天数
+  daysUntilStale: 30
+  # 过期时的标签
+  staleLabel: "stale"
+  # 过期时的评论
+  markComment: >
+    This pull request has been automatically marked as stale because it has not had
+    recent activity. It will be closed if no further activity occurs. Thank you
+    for your contributions.
+  # 关闭的天数
+  daysUntilClose: 7
+  # 忽略的标签
+  exemptLabels:
+    - "work-in-progress"
+    - "needs-review"
+    - "approved"
+
+# 配置
+# 跳过过期检查的 PR
+exemptProjects: true
+# 跳过过期检查的里程碑
+exemptMilestones: true
+# 跳过过期检查的参与者
+exemptContributors: true

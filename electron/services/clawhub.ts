@@ -414,7 +414,7 @@ export class ClawHubService extends EventEmitter {
 
     try {
       const response = await fetch(
-        'https://api.github.com/repos/volt-agent/awesome-openclaw-skills/contents/skills',
+        'https://api.github.com/repos/weiransoft/awesome-openclaw-skills/contents/skills',
         { headers: { 'Accept': 'application/vnd.github.v3+json' } }
       );
 
