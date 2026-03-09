@@ -6,11 +6,19 @@ import { localGUIExecutor } from '../services/gui-executor';
 
 let clawHubService: ClawHubService | null = null;
 
+import * as path from 'path';
+import * as os from 'os';
+
 // Input validation helpers
 const MAX_MESSAGE_LENGTH = 100000; // 100KB
 const MAX_SESSION_ID_LENGTH = 64;
 const MAX_NAME_LENGTH = 256;
 
+/**
+ * 验证消息内容
+ * @param message 要验证的消息
+ * @returns 错误信息，如果验证通过则返回 null
+ */
 function validateMessage(message: unknown): string | null {
   if (typeof message !== 'string') {
     return 'Message must be a string';
@@ -24,6 +32,11 @@ function validateMessage(message: unknown): string | null {
   return null;
 }
 
+/**
+ * 验证会话 ID
+ * @param sessionId 要验证的会话 ID
+ * @returns 错误信息，如果验证通过则返回 null
+ */
 function validateSessionId(sessionId: unknown): string | null {
   if (sessionId === undefined || sessionId === null) {
     return null; // Optional
@@ -42,21 +55,55 @@ function validateSessionId(sessionId: unknown): string | null {
   return null;
 }
 
-function validatePath(path: unknown): string | null {
-  if (typeof path !== 'string') {
+/**
+ * 验证文件路径安全性
+ * 防止路径遍历攻击，确保路径在用户目录下
+ * @param inputPath 要验证的路径
+ * @returns 错误信息，如果验证通过则返回 null
+ */
+function validatePath(inputPath: unknown): string | null {
+  if (typeof inputPath !== 'string') {
     return 'Path must be a string';
   }
-  if (path.includes('../') || path.includes('..\\')) {
+  
+  // 检查空路径
+  if (inputPath.length === 0) {
+    return 'Path cannot be empty';
+  }
+  
+  // 检查路径长度
+  if (inputPath.length > 4096) {
+    return 'Path too long';
+  }
+  
+  // 检查空字节注入
+  if (inputPath.includes('\0')) {
+    return 'Invalid path: null byte detected';
+  }
+  
+  // 检查路径遍历字符
+  if (inputPath.includes('../') || inputPath.includes('..\\') || 
+      inputPath.includes('/..') || inputPath.includes('\\..')) {
     return 'Path traversal detected';
   }
-  // Additional path validation to prevent directory traversal
-  const normalized = path.normalize();
-  if (!normalized.startsWith('/') && !normalized.startsWith('~') && !normalized.match(/^[A-Za-z]:\\/)) {
-    return 'Invalid path format';
+  
+  // 使用 path.resolve 规范化路径
+  const resolvedPath = path.resolve(inputPath);
+  const homeDir = path.resolve(os.homedir());
+  
+  // 确保路径在用户目录下（允许访问用户主目录及其子目录）
+  if (!resolvedPath.startsWith(homeDir)) {
+    return 'Path must be within user home directory';
   }
+  
   return null;
 }
 
+/**
+ * 验证名称
+ * @param name 要验证的名称
+ * @returns 错误信息，如果验证通过则返回 null
+ */
 function validateName(name: unknown): string | null {
   if (name === undefined || name === null) {
     return null; // Optional

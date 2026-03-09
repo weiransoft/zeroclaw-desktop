@@ -24,6 +24,12 @@ function App() {
   }, []);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    
+    /**
+     * 检查配对状态
+     * 包含完整的错误处理和未捕获的 Promise 拒绝处理
+     */
     const checkPairingStatus = async () => {
       try {
         if (!window.zeroclaw || !window.zeroclaw.system) {
@@ -32,6 +38,8 @@ function App() {
         }
         
         const status = await window.zeroclaw.system.getPairingStatus();
+        
+        // 检查组件是否已卸载
         if (!isMountedRef.current) return;
         
         setGatewayAvailable(status.gatewayAvailable);
@@ -41,32 +49,57 @@ function App() {
           setShowPairingDialog(true);
         }
       } catch (err) {
-        console.error('Failed to check pairing status:', err);
+        // 使用类型守卫处理错误
+        if (err instanceof Error) {
+          console.error('Failed to check pairing status:', err.message);
+          // 可选：显示用户友好的错误提示
+          if (isMountedRef.current) {
+            // 可以在这里设置错误状态，显示给用户
+            console.warn('Pairing status check failed, will retry...');
+          }
+        } else {
+          console.error('Unknown error checking pairing status');
+        }
       }
     };
 
-    checkPairingStatus();
+    // 初始检查
+    checkPairingStatus().catch(err => {
+      console.error('Unhandled promise rejection in checkPairingStatus:', err);
+    });
     
-    const interval = setInterval(checkPairingStatus, 5000);
+    const interval = setInterval(() => {
+      checkPairingStatus().catch(err => {
+        console.error('Unhandled promise rejection in interval check:', err);
+      });
+    }, 5000);
     
     // 监听配对成功事件
     let cleanupPairedListener: (() => void) | null = null;
     
-    if (window.zeroclaw && window.zeroclaw.system && typeof window.zeroclaw.system.onPaired === 'function') {
-      cleanupPairedListener = window.zeroclaw.system.onPaired((status) => {
-        if (!isMountedRef.current) return;
-        
-        setIsPaired(status.isPaired);
-        setShowPairingDialog(false);
-      });
-    } else {
-      console.log('onPaired function not available yet');
+    try {
+      if (window.zeroclaw && window.zeroclaw.system && typeof window.zeroclaw.system.onPaired === 'function') {
+        cleanupPairedListener = window.zeroclaw.system.onPaired((status) => {
+          if (!isMountedRef.current) return;
+          
+          setIsPaired(status.isPaired);
+          setShowPairingDialog(false);
+        });
+      } else {
+        console.log('onPaired function not available yet');
+      }
+    } catch (err) {
+      console.error('Error setting up paired listener:', err);
     }
     
     return () => {
       clearInterval(interval);
       if (cleanupPairedListener) {
-        cleanupPairedListener();
+        try {
+          cleanupPairedListener();
+        } catch (err) {
+          console.error('Error cleaning up paired listener:', err);
+        }
       }
     };
   }, []);

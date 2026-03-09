@@ -19,6 +19,9 @@ import {
   Loader2,
   HelpCircle,
   LucideIcon,
+  CheckCircle,
+  Settings,
+  AlertTriangle,
 } from 'lucide-react';
 import { useTraces, useTrace } from './hooks';
 import { Button } from '@/components/ui/button';

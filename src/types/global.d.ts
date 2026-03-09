@@ -337,6 +337,7 @@ export interface ZeroClawAPI {
 
   cost: {
     summary: () => Promise<any>;
+    daily: () => Promise<any>;
   };
 
   agentGroups: {
@@ -373,6 +374,7 @@ export interface ZeroClawAPI {
     getPairingStatus: () => Promise<{ gatewayAvailable: boolean; isPaired: boolean }>;
     pair: (code: string) => Promise<{ success: boolean; error?: string }>;
     setToken: (token: string) => Promise<{ success: boolean; message: string }>;
+    onPaired: (callback: (status: { isPaired: boolean }) => void) => () => void;
   };
 
   window: {

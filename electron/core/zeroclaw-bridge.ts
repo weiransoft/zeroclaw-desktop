@@ -72,17 +72,40 @@ export class ZeroClawBridge extends EventEmitter {
     this.loadSavedToken();
   }
 
+  /**
+   * 安全保存 Token
+   * 使用系统级加密存储，拒绝不安全的明文存储
+   * @param token 要保存的 Token
+   * @throws Error 如果系统不支持加密存储
+   */
   private saveToken(token: string): void {
+    // 验证 token 格式
+    if (!token || typeof token !== 'string') {
+      throw new Error('Invalid token format');
+    }
+    
+    // 验证 token 前缀
+    if (!token.startsWith('zc_')) {
+      throw new Error('Invalid token prefix');
+    }
+    
+    // 验证 token 长度（防止过长的 token）
+    if (token.length > 200) {
+      throw new Error('Token too long');
+    }
+    
     this.bearerToken = token;
     this.isPaired = true;
-    // Use safeStorage for encrypted token storage
+    
+    // 使用 safeStorage 进行加密存储
     if (safeStorage.isEncryptionAvailable()) {
       const encrypted = safeStorage.encryptString(token);
       this.db.setSetting('gateway_token_encrypted', encrypted.toString('base64'));
-      this.db.setSetting('gateway_token', ''); // Clear plaintext
+      this.db.setSetting('gateway_token', ''); // 清除明文
     } else {
-      // Fallback to plaintext (less secure)
-      this.db.setSetting('gateway_token', token);
+      // 如果系统不支持加密，拒绝存储并抛出错误
+      console.error('Token encryption not available on this system');
+      throw new Error('Token encryption not available. Please ensure your system supports secure storage.');
     }
   }
   
@@ -189,9 +212,33 @@ export class ZeroClawBridge extends EventEmitter {
     }
   }
 
+  /**
+   * 配对网关
+   * @param pairingCode 配对码
+   * @returns 配对结果
+   */
   async pair(pairingCode: string): Promise<{ success: boolean; message: string }> {
+    // 验证配对码格式
+    if (!pairingCode || typeof pairingCode !== 'string') {
+      return { success: false, message: '配对码不能为空' };
+    }
+    
+    // 去除前后空格
+    const trimmedCode = pairingCode.trim();
+    
+    // 验证配对码长度（通常是 6-8 位）
+    if (trimmedCode.length < 4 || trimmedCode.length > 16) {
+      return { success: false, message: '配对码长度无效' };
+    }
+    
+    // 验证配对码格式（只允许字母和数字）
+    const codeRegex = /^[A-Z0-9]+$/i;
+    if (!codeRegex.test(trimmedCode)) {
+      return { success: false, message: '配对码格式无效，只允许字母和数字' };
+    }
+    
     try {
-      const result = await this.gatewayRequest('POST', '/pair', null, 5000, { 'X-Pairing-Code': pairingCode });
+      const result = await this.gatewayRequest('POST', '/pair', null, 5000, { 'X-Pairing-Code': trimmedCode });
       
       if (result.paired && result.token) {
         this.saveToken(result.token);
@@ -227,12 +274,32 @@ export class ZeroClawBridge extends EventEmitter {
     return { success: true, message: 'Token 设置成功' };
   }
 
-  private async checkGateway(): Promise<void> {
+  private checkGatewayLock: boolean = false;
+  private checkGatewayPromise: Promise<void> | null = null;
+
+  /**
+   * 检查网关状态
+   * 使用锁机制防止并发调用
+   * @returns Promise，当检查完成时解析
+   */
+  async checkGateway(): Promise<void> {
     // 如果已经有一个检查在进行中，等待它完成
     if (this.checkGatewayPromise) {
       return this.checkGatewayPromise;
     }
+    
+    // 使用锁机制防止并发
+    if (this.checkGatewayLock) {
+      console.log('[ZeroClawBridge] Gateway check already in progress, waiting...');
+      // 等待锁释放
+      while (this.checkGatewayLock) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      return;
+    }
 
+    this.checkGatewayLock = true;
+    
     // 创建新的检查 Promise
     this.checkGatewayPromise = (async () => {
       try {
@@ -244,7 +311,7 @@ export class ZeroClawBridge extends EventEmitter {
           if (this.bearerToken) {
             const tokenValid = await this.verifyToken();
             if (!tokenValid) {
-              console.log('Token is invalid, clearing...');
+              console.log('[ZeroClawBridge] Token is invalid, clearing...');
               this.clearToken();
               this.isPaired = false;
             } else {
@@ -258,15 +325,16 @@ export class ZeroClawBridge extends EventEmitter {
             }
           }
           
-          console.log('ZeroClaw Gateway is available, paired:', this.isPaired);
+          console.log('[ZeroClawBridge] Gateway is available, paired:', this.isPaired);
           broadcastToWindows('system:log', { level: 'info', message: 'Connected to ZeroClaw Gateway' });
         }
       } catch (err) {
         this.gatewayAvailable = false;
-        console.log('ZeroClaw Gateway not available, will need to start manually');
+        console.log('[ZeroClawBridge] Gateway not available, will need to start manually');
       } finally {
-        // 清除 Promise 引用，允许下次检查
+        // 清除 Promise 引用和锁，允许下次检查
         this.checkGatewayPromise = null;
+        this.checkGatewayLock = false;
       }
     })();
 
@@ -603,13 +671,33 @@ export class ZeroClawBridge extends EventEmitter {
     });
   }
 
+  /**
+   * 停止 ZeroClaw 进程并清理所有资源
+   * 确保所有事件监听器、定时器和进程都被正确清理
+   */
   stop(): void {
-    // 清理进程事件监听器
+    // 清理进程及其事件监听器
     if (this.process) {
-      this.process.stdout?.removeAllListeners();
-      this.process.stderr?.removeAllListeners();
-      this.process.removeAllListeners();
-      this.process.kill('SIGTERM');
+      // 移除所有进程事件监听器
+      if (this.process.stdout) {
+        this.process.stdout.removeAllListeners('data');
+        this.process.stdout.destroy();
+      }
+      if (this.process.stderr) {
+        this.process.stderr.removeAllListeners('data');
+        this.process.stderr.destroy();
+      }
+      this.process.removeAllListeners('close');
+      this.process.removeAllListeners('error');
+      this.process.removeAllListeners('exit');
+      
+      // 发送 SIGTERM 信号优雅终止
+      try {
+        this.process.kill('SIGTERM');
+      } catch (err) {
+        console.warn('[ZeroClawBridge] Failed to kill process:', err);
+      }
+      
       this.process = null;
     }
     
@@ -618,18 +706,23 @@ export class ZeroClawBridge extends EventEmitter {
       try {
         cleanup();
       } catch (err) {
-        console.warn('Error in cleanup function:', err);
+        console.warn('[ZeroClawBridge] Error in cleanup function:', err);
       }
     });
     this.processEventHandlers = [];
     
-    // 清理状态
+    // 清理缓冲区
     this.messageBuffer = '';
+    this.accumulatedContent = '';
+    
+    // 重置状态
     this.isRunning = false;
     this.gatewayAvailable = false;
     
-    // 注意：不要移除所有事件监听器，因为这可能会影响其他组件
-    // 只移除特定的事件监听器，而不是使用 removeAllListeners()
+    // 清理检查网关的 Promise
+    this.checkGatewayPromise = null;
+    
+    console.log('[ZeroClawBridge] All resources cleaned up');
   }
 
   private findZeroClawBinary(): string {

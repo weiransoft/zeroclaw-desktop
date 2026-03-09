@@ -404,7 +404,12 @@ export class ClawHubService extends EventEmitter {
     return SkillCategory.Automation;
   }
 
+  /**
+   * 从 GitHub 获取技能列表
+   * @returns 技能列表
+   */
   private async fetchGitHubSkills(): Promise<SkillInfo[]> {
+    // 如果有缓存，直接返回
     if (this.skillsCache) return this.skillsCache;
 
     const cacheKey = 'github-skills';
@@ -413,39 +418,68 @@ export class ClawHubService extends EventEmitter {
     }
 
     try {
+      // 创建 AbortController 用于超时控制
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+      
       const response = await fetch(
         'https://api.github.com/repos/weiransoft/awesome-openclaw-skills/contents/skills',
-        { headers: { 'Accept': 'application/vnd.github.v3+json' } }
+        { 
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+          signal: controller.signal
+        }
       );
+      
+      clearTimeout(timeoutId);
 
-      if (response.ok) {
-        const repos = await response.json();
-        const skills: SkillInfo[] = repos
-          .filter((item: any) => item.type === 'dir')
-          .map((item: any) => ({
-            id: item.name,
-            name: item.name.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
-            version: '1.0.0',
-            description: `OpenClaw skill: ${item.name}`,
-            author: 'openclaw-community',
-            category: this.categorizeSkill(item.name),
-            tags: item.name.split('-'),
-            capabilities: [],
-            rating: 4.0 + Math.random() * 1.0,
-            downloads: Math.floor(Math.random() * 10000) + 100,
-            verified: false,
-          }));
-
-        const allSkills = [...this.getDefaultSkills(), ...skills];
-        this.skillsCache = allSkills;
-        this.cache.set(cacheKey, { data: allSkills, timestamp: Date.now() });
-        return allSkills;
+      if (!response.ok) {
+        throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
       }
-    } catch (error) {
-      console.warn('Failed to fetch GitHub skills, using defaults:', error);
-    }
 
-    return this.getDefaultSkills();
+      const repos = await response.json();
+      
+      // 验证响应数据
+      if (!Array.isArray(repos)) {
+        throw new Error('Invalid GitHub API response: expected array');
+      }
+      
+      const skills: SkillInfo[] = repos
+        .filter((item: any) => item.type === 'dir' && item.name)
+        .map((item: any) => ({
+          id: item.name,
+          name: item.name.replace(/-/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase()),
+          version: '1.0.0',
+          description: `OpenClaw skill: ${item.name}`,
+          author: 'openclaw-community',
+          category: this.categorizeSkill(item.name),
+          tags: item.name.split('-'),
+          capabilities: [],
+          rating: 4.0 + Math.random() * 1.0,
+          downloads: Math.floor(Math.random() * 10000) + 100,
+          verified: false,
+        }));
+
+      const allSkills = [...this.getDefaultSkills(), ...skills];
+      this.skillsCache = allSkills;
+      this.cache.set(cacheKey, { data: allSkills, timestamp: Date.now() });
+      return allSkills;
+    } catch (error) {
+      // 记录详细错误信息
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.warn('[ClawHub] GitHub API request timeout');
+        } else {
+          console.warn('[ClawHub] Failed to fetch GitHub skills:', error.message);
+        }
+        // 发出错误事件供监控使用
+        this.emit('fetch-error', error);
+      } else {
+        console.warn('[ClawHub] Unknown error fetching GitHub skills');
+      }
+      
+      // 返回默认技能列表
+      return this.getDefaultSkills();
+    }
   }
 
   async searchSkills(

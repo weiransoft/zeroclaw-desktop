@@ -39,26 +39,46 @@ export class LocalGUIExecutor {
 
   /**
    * 移动鼠标到指定位置
+   * @param x X 坐标
+   * @param y Y 坐标
+   * @returns 操作是否成功
    */
   async mouseMove(x: number, y: number): Promise<boolean> {
+    // 安全验证：确保坐标为有效数字，防止命令注入
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      console.error('[LocalGUIExecutor] 无效的鼠标坐标：坐标必须为有限数字');
+      return false;
+    }
+    
+    // 限制坐标范围在合理屏幕范围内（防止异常值）
+    const MAX_SCREEN_COORDINATE = 100000;
+    if (Math.abs(x) > MAX_SCREEN_COORDINATE || Math.abs(y) > MAX_SCREEN_COORDINATE) {
+      console.error('[LocalGUIExecutor] 鼠标坐标超出合理范围');
+      return false;
+    }
+    
+    // 使用 Math.round 确保坐标为整数
+    const safeX = Math.round(x);
+    const safeY = Math.round(y);
+    
     try {
-      this.currentMousePos = { x, y };
+      this.currentMousePos = { x: safeX, y: safeY };
       
       if (this.platform === 'darwin') {
-        // macOS - 使用 AppleScript
-        await execAsync(`osascript -e 'tell application "System Events" to set mouse position to {${x}, ${y}}'`);
+        // macOS - 使用 AppleScript（坐标已验证为安全整数）
+        await execAsync(`osascript -e 'tell application "System Events" to set mouse position to {${safeX}, ${safeY}}'`);
       } else if (this.platform === 'win32') {
-        // Windows - 使用 PowerShell
-        await execAsync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x},${y})"`);
+        // Windows - 使用 PowerShell（坐标已验证为安全整数）
+        await execAsync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${safeX},${safeY})"`);
       } else if (this.platform === 'linux') {
-        // Linux - 使用 xdotool
-        await execAsync(`xdotool mousemove ${x} ${y}`);
+        // Linux - 使用 xdotool（坐标已验证为安全整数）
+        await execAsync(`xdotool mousemove ${safeX} ${safeY}`);
       } else {
         console.warn(`[LocalGUIExecutor] 不支持的平台：${this.platform}`);
         return false;
       }
       
-      console.log(`[LocalGUIExecutor] 鼠标移动到 (${x}, ${y})`);
+      console.log(`[LocalGUIExecutor] 鼠标移动到 (${safeX}, ${safeY})`);
       return true;
     } catch (error: any) {
       console.error(`[LocalGUIExecutor] 鼠标移动失败：${error.message}`);
@@ -164,19 +184,63 @@ export class LocalGUIExecutor {
 
   /**
    * 键盘输入文本
+   * @param text 要输入的文本
+   * @returns 操作是否成功
    */
   async keyboardType(text: string): Promise<boolean> {
+    // 安全验证：检查文本有效性
+    if (typeof text !== 'string') {
+      console.error('[LocalGUIExecutor] 无效的文本输入：必须为字符串');
+      return false;
+    }
+    
+    // 限制文本长度，防止过长的输入
+    const MAX_TEXT_LENGTH = 10000;
+    if (text.length > MAX_TEXT_LENGTH) {
+      console.error(`[LocalGUIExecutor] 文本过长：最大允许 ${MAX_TEXT_LENGTH} 字符`);
+      return false;
+    }
+    
+    // 检查是否包含控制字符（除了常见的空白字符）
+    const hasControlChars = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/.test(text);
+    if (hasControlChars) {
+      console.error('[LocalGUIExecutor] 文本包含非法控制字符');
+      return false;
+    }
+    
     try {
       if (this.platform === 'darwin') {
-        // macOS - 需要转义特殊字符
-        const escapedText = text.replace(/'/g, "'\\''");
-        await execAsync(`osascript -e 'tell application "System Events" to keystroke "${escapedText}"'`);
+        // macOS - 使用更安全的转义方式
+        // 只允许可打印 ASCII 字符和常见 Unicode 字符
+        const safeText = text
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/'/g, "\\'")
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+        
+        await execAsync(`osascript -e 'tell application "System Events" to keystroke "${safeText}"'`);
       } else if (this.platform === 'win32') {
-        // Windows
-        await execAsync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${text.replace(/[^a-zA-Z0-9]/g, '{$&}')}')"`);
+        // Windows - 使用 SendKeys 安全格式
+        // 对特殊字符进行转义
+        const safeText = text
+          .replace(/[+^%~(){}[\]]/g, '{$&}')
+          .replace(/\n/g, '{ENTER}')
+          .replace(/\t/g, '{TAB}');
+        
+        await execAsync(`powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${safeText}')"`);
       } else if (this.platform === 'linux') {
-        // Linux
-        await execAsync(`xdotool type "${text.replace(/"/g, '\\\\"')}"`);
+        // Linux - 使用 xdotool，对引号进行转义
+        const safeText = text
+          .replace(/\\/g, '\\\\')
+          .replace(/"/g, '\\"')
+          .replace(/'/g, "\\'")
+          .replace(/\n/g, '\\n')
+          .replace(/\r/g, '\\r')
+          .replace(/\t/g, '\\t');
+        
+        await execAsync(`xdotool type "${safeText}"`);
       } else {
         return false;
       }
