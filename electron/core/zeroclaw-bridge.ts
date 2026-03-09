@@ -376,6 +376,120 @@ export class ZeroClawBridge extends EventEmitter {
     });
   }
   
+  /**
+   * 网关流式请求 (SSE)
+   * @param method HTTP 方法
+   * @param path 请求路径
+   * @param body 请求体
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  private gatewayStreamRequest(
+    method: string,
+    path: string,
+    body: any = null,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const abortController = new AbortController();
+    
+    // 验证路径，防止 SSRF 攻击
+    if (!this.isValidPath(path)) {
+      onError(new Error('Invalid path for gateway request'));
+      return abortController;
+    }
+    
+    const bodyStr = body ? JSON.stringify(body) : null;
+    
+    const headers: http.OutgoingHttpHeaders = {
+      'Content-Type': 'application/json',
+    };
+
+    if (this.bearerToken) {
+      headers['Authorization'] = `Bearer ${this.bearerToken}`;
+    }
+
+    if (bodyStr) {
+      headers['Content-Length'] = Buffer.byteLength(bodyStr);
+    }
+
+    const options: http.RequestOptions = {
+      hostname: GATEWAY_HOST,
+      port: GATEWAY_PORT,
+      path: path,
+      method: method,
+      headers: headers,
+    };
+
+    const req = http.request(options, (res) => {
+      let buffer = '';
+      
+      // SSE 事件解析
+      const parseSSE = (data: string) => {
+        const lines = data.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data:')) {
+            const eventData = line.substring(5).trim();
+            if (eventData) {
+              try {
+                const parsed = JSON.parse(eventData);
+                onChunk(parsed);
+              } catch (e) {
+                console.log('Failed to parse SSE event:', eventData);
+              }
+            }
+          }
+        }
+      };
+      
+      res.on('data', (chunk) => {
+        if (abortController.signal.aborted) {
+          req.destroy();
+          return;
+        }
+        
+        buffer += chunk.toString();
+        
+        // 处理完整的 SSE 事件
+        while (buffer.includes('\n\n')) {
+          const parts = buffer.split('\n\n');
+          const event = parts.shift();
+          if (event) {
+            parseSSE(event);
+          }
+          buffer = parts.join('\n\n');
+        }
+      });
+      
+      res.on('end', () => {
+        onComplete();
+      });
+      
+      res.on('error', (err) => {
+        onError(err);
+      });
+    });
+
+    req.on('error', (err) => {
+      onError(err);
+    });
+
+    if (bodyStr) {
+      req.write(bodyStr);
+    }
+    req.end();
+    
+    // 添加中止处理
+    abortController.signal.addEventListener('abort', () => {
+      req.destroy();
+    });
+    
+    return abortController;
+  }
+  
   private isValidPath(path: string): boolean {
     // 验证路径不包含危险字符，防止 SSRF 攻击
     if (path.includes('..') || path.includes(';') || path.includes('&')) {
@@ -2117,5 +2231,490 @@ export class ZeroClawBridge extends EventEmitter {
       alerts: [],
       failurePatterns: [],
     };
+  }
+
+  // ============ GUI Agent API ============
+
+  /**
+   * 捕获全屏截图 (SSE 流式)
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  captureScreenStream(
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    return this.gatewayStreamRequest(
+      'GET',
+      '/gui/capture/screen',
+      null,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 捕获指定区域截图 (SSE 流式)
+   * @param x 区域左上角 X 坐标
+   * @param y 区域左上角 Y 坐标
+   * @param width 区域宽度
+   * @param height 区域高度
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  captureRegionStream(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const params = new URLSearchParams({ x: x.toString(), y: y.toString(), width: width.toString(), height: height.toString() });
+    return this.gatewayStreamRequest(
+      'GET',
+      `/gui/capture/region?${params.toString()}`,
+      null,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 捕获指定窗口截图 (SSE 流式)
+   * @param windowId 窗口 ID
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  captureWindowStream(
+    windowId: number,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const params = new URLSearchParams({ window_id: windowId.toString() });
+    return this.gatewayStreamRequest(
+      'GET',
+      `/gui/capture/window?${params.toString()}`,
+      null,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 点击屏幕指定位置 (SSE 流式)
+   * @param x X 坐标
+   * @param y Y 坐标
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  clickScreenStream(
+    x: number,
+    y: number,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const body = { x, y };
+    return this.gatewayStreamRequest(
+      'POST',
+      '/gui/automation/click',
+      body,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 输入文本 (SSE 流式)
+   * @param text 要输入的文本
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  typeTextStream(
+    text: string,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const body = { text };
+    return this.gatewayStreamRequest(
+      'POST',
+      '/gui/automation/type',
+      body,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 启动应用 (SSE 流式)
+   * @param path 应用路径
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  launchAppStream(
+    path: string,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const body = { path };
+    return this.gatewayStreamRequest(
+      'POST',
+      '/gui/tools/launch_app',
+      body,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 列出所有窗口 (SSE 流式)
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  listWindowsStream(
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const body = {};
+    return this.gatewayStreamRequest(
+      'POST',
+      '/gui/tools/list_windows',
+      body,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  /**
+   * 查找窗口 (SSE 流式)
+   * @param title 窗口标题
+   * @param onChunk 每个数据块的回调函数
+   * @param onComplete 完成时的回调函数
+   * @param onError 错误时的回调函数
+   * @returns AbortController 用于取消请求
+   */
+  findWindowStream(
+    title: string,
+    onChunk: (chunk: any) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+  ): AbortController {
+    const body = { title };
+    return this.gatewayStreamRequest(
+      'POST',
+      '/gui/tools/find_window',
+      body,
+      onChunk,
+      onComplete,
+      onError
+    );
+  }
+
+  // ============ GUI Agent Window Management ============
+
+  /**
+   * 获取窗口列表
+   */
+  async listWindows(): Promise<any[]> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/gui/windows');
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  /**
+   * 获取前台窗口
+   */
+  async getForegroundWindow(): Promise<any | null> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', '/gui/windows/foreground');
+        return result || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 激活窗口
+   */
+  async activateWindow(windowId: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', `/gui/windows/${windowId}/activate`);
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 关闭窗口
+   */
+  async closeWindow(windowId: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', `/gui/windows/${windowId}/close`);
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 移动窗口
+   */
+  async moveWindow(windowId: number, x: number, y: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', `/gui/windows/${windowId}/move`, { x, y });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 调整窗口大小
+   */
+  async resizeWindow(windowId: number, width: number, height: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', `/gui/windows/${windowId}/resize`, { width, height });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // ============ GUI Agent App Management ============
+
+  /**
+   * 启动应用
+   */
+  async launchApp(appPath: string, args?: string[]): Promise<{ success: boolean; pid?: number; error?: string }> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/app/launch', { appPath, args: args || [] });
+        return result || { success: false, error: 'Unknown error' };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  /**
+   * 检查应用是否已安装
+   */
+  async isAppInstalled(appName: string): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/gui/app/${encodeURIComponent(appName)}/installed`);
+        return result?.installed || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // ============ GUI Agent Input Control ============
+
+  /**
+   * 执行鼠标点击
+   */
+  async mouseClick(x: number, y: number, button?: string): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/automation/click', { x, y, button: button || 'left' });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 执行鼠标移动
+   */
+  async mouseMove(x: number, y: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/automation/move', { x, y });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 执行鼠标拖拽
+   */
+  async mouseDrag(fromX: number, fromY: number, toX: number, toY: number): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/automation/drag', { fromX, fromY, toX, toY });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 执行键盘输入
+   */
+  async keyboardType(text: string): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/automation/type', { text });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 执行快捷键
+   */
+  async keyboardShortcut(keys: string[]): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/automation/shortcut', { keys });
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // ============ GUI Agent Task Management ============
+
+  /**
+   * 执行 GUI 任务
+   */
+  async executeGuiTask(taskDescription: string): Promise<{ taskId: string; success: boolean; error?: string }> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/task/execute', { taskDescription });
+        return result || { taskId: '', success: false, error: 'Unknown error' };
+      } catch (e: any) {
+        return { taskId: '', success: false, error: e.message };
+      }
+    }
+    return { taskId: '', success: false, error: 'Gateway not available' };
+  }
+
+  /**
+   * 获取任务状态
+   */
+  async getGuiTaskStatus(taskId: string): Promise<any | null> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('GET', `/gui/task/${taskId}/status`);
+        return result || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 取消任务
+   */
+  async cancelGuiTask(taskId: string): Promise<boolean> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', `/gui/task/${taskId}/cancel`);
+        return result?.success || false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // ============ GUI Agent Perception ============
+
+  /**
+   * 理解屏幕
+   */
+  async understandScreen(screenImage: string, goal: string): Promise<{ success: boolean; understanding?: string; error?: string }> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/perceptor/understand', { screenImage, goal });
+        return result || { success: false, error: 'Unknown error' };
+      } catch (e: any) {
+        return { success: false, error: e.message };
+      }
+    }
+    return { success: false, error: 'Gateway not available' };
+  }
+
+  /**
+   * 查找 UI 元素
+   */
+  async findUiElements(screenImage: string, description: string): Promise<{ success: boolean; elements?: any[]; error?: string }> {
+    if (this.gatewayAvailable) {
+      try {
+        const result = await this.gatewayRequest('POST', '/gui/perceptor/find_elements', { screenImage, description });
+        return result || { success: false, elements: [], error: 'Unknown error' };
+      } catch (e: any) {
+        return { success: false, elements: [], error: e.message };
+      }
+    }
+    return { success: false, elements: [], error: 'Gateway not available' };
   }
 }

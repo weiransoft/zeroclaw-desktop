@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, dialog } from 'electron';
 import { ZeroClawBridge } from './zeroclaw-bridge';
 import { Database } from '../store/database';
 import { ClawHubService, SkillDownloadRequest, SkillSearchOptions, SkillListOptions } from '../services/clawhub';
+import { localGUIExecutor } from '../services/gui-executor';
 
 let clawHubService: ClawHubService | null = null;
 
@@ -708,6 +709,135 @@ export function setupIpcHandlers(bridge: ZeroClawBridge, db: Database) {
    */
   ipcMain.handle('observability:failure-patterns', async () => {
     return bridge.getFailurePatterns();
+  });
+
+  // ============ GUI Agent API ============
+
+  /**
+   * 获取窗口列表
+   */
+  ipcMain.handle('gui:windows:list', async () => {
+    // 优先使用本地执行器
+    return localGUIExecutor.listWindows();
+  });
+
+  /**
+   * 获取前台窗口
+   */
+  ipcMain.handle('gui:windows:foreground', async () => {
+    return localGUIExecutor.getForegroundWindow();
+  });
+
+  /**
+   * 激活窗口
+   */
+  ipcMain.handle('gui:windows:activate', async (_, windowId: number) => {
+    return localGUIExecutor.activateWindow(windowId);
+  });
+
+  /**
+   * 关闭窗口
+   */
+  ipcMain.handle('gui:windows:close', async (_, windowId: number) => {
+    return localGUIExecutor.closeWindow(windowId);
+  });
+
+  /**
+   * 移动窗口
+   */
+  ipcMain.handle('gui:windows:move', async (_, windowId: number, x: number, y: number) => {
+    return localGUIExecutor.moveWindow(windowId, x, y);
+  });
+
+  /**
+   * 调整窗口大小
+   */
+  ipcMain.handle('gui:windows:resize', async (_, windowId: number, width: number, height: number) => {
+    return localGUIExecutor.resizeWindow(windowId, width, height);
+  });
+
+  /**
+   * 启动应用
+   */
+  ipcMain.handle('gui:app:launch', async (_, appPath: string, args?: string[]) => {
+    return localGUIExecutor.launchApp(appPath, args);
+  });
+
+  /**
+   * 检查应用是否已安装
+   */
+  ipcMain.handle('gui:app:is-installed', async (_, appName: string) => {
+    return localGUIExecutor.isAppInstalled(appName);
+  });
+
+  /**
+   * 执行鼠标点击
+   */
+  ipcMain.handle('gui:mouse:click', async (_, x: number, y: number, button?: string) => {
+    return localGUIExecutor.mouseClick(x, y, button as any);
+  });
+
+  /**
+   * 执行鼠标移动
+   */
+  ipcMain.handle('gui:mouse:move', async (_, x: number, y: number) => {
+    return localGUIExecutor.mouseMove(x, y);
+  });
+
+  /**
+   * 执行鼠标拖拽
+   */
+  ipcMain.handle('gui:mouse:drag', async (_, fromX: number, fromY: number, toX: number, toY: number) => {
+    return localGUIExecutor.mouseDrag(fromX, fromY, toX, toY);
+  });
+
+  /**
+   * 执行键盘输入
+   */
+  ipcMain.handle('gui:keyboard:type', async (_, text: string) => {
+    return localGUIExecutor.keyboardType(text);
+  });
+
+  /**
+   * 执行快捷键
+   */
+  ipcMain.handle('gui:keyboard:shortcut', async (_, keys: string[]) => {
+    return localGUIExecutor.keyboardShortcut(keys);
+  });
+
+  /**
+   * 执行 GUI 任务（通过网关）
+   */
+  ipcMain.handle('gui:task:execute', async (_, taskDescription: string) => {
+    return bridge.executeGuiTask(taskDescription);
+  });
+
+  /**
+   * 获取任务状态（通过网关）
+   */
+  ipcMain.handle('gui:task:status', async (_, taskId: string) => {
+    return bridge.getGuiTaskStatus(taskId);
+  });
+
+  /**
+   * 取消任务（通过网关）
+   */
+  ipcMain.handle('gui:task:cancel', async (_, taskId: string) => {
+    return bridge.cancelGuiTask(taskId);
+  });
+
+  /**
+   * 理解屏幕（通过网关）
+   */
+  ipcMain.handle('gui:screen:understand', async (_, screenImage: string, goal: string) => {
+    return bridge.understandScreen(screenImage, goal);
+  });
+
+  /**
+   * 查找 UI 元素（通过网关）
+   */
+  ipcMain.handle('gui:elements:find', async (_, screenImage: string, description: string) => {
+    return bridge.findUiElements(screenImage, description);
   });
 }
 
