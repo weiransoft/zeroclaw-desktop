@@ -385,6 +385,8 @@ export class Database {
       timestamp: message.timestamp || Date.now(),
     });
     
+    // 限制每个会话的消息数量，最多保留 1000 条，超过时只保留最近的 500 条
+    // 这样可以防止消息存储过多导致性能问题
     if (messages[sessionId].length > 1000) {
       messages[sessionId] = messages[sessionId].slice(-500);
     }
@@ -626,6 +628,90 @@ export class Database {
   }
 
   // ============ Cleanup ============
+
+  /**
+   * 清理缓存数据
+   * 定期调用此方法可以防止缓存数据过多导致性能问题
+   */
+  cleanupCache(): void {
+    try {
+      // 清理会话消息，确保每个会话的消息数量不超过限制
+      const messages = this.store.get('cachedMessages');
+      const sessions = this.store.get('cachedSessions');
+      
+      // 清理超过 30 天未使用的会话
+      const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      const activeSessionIds = new Set<string>();
+      
+      // 保留活跃会话
+      Object.entries(sessions).forEach(([sessionId, session]: [string, any]) => {
+        if (session.updatedAt > thirtyDaysAgo) {
+          activeSessionIds.add(sessionId);
+        } else {
+          // 删除不活跃会话的消息
+          delete messages[sessionId];
+        }
+      });
+      
+      // 清理不活跃会话
+      Object.keys(sessions).forEach(sessionId => {
+        if (!activeSessionIds.has(sessionId)) {
+          delete sessions[sessionId];
+        }
+      });
+      
+      // 确保所有会话的消息数量都在限制范围内
+      Object.keys(messages).forEach(sessionId => {
+        if (messages[sessionId].length > 1000) {
+          messages[sessionId] = messages[sessionId].slice(-500);
+        }
+      });
+      
+      // 清理群聊消息，最多保留 2000 条
+      const swarmMessages = this.store.get('cachedSwarmMessages');
+      if (swarmMessages.length > 2000) {
+        this.store.set('cachedSwarmMessages', swarmMessages.slice(-1000));
+      }
+      
+      // 清理工作流，最多保留 100 个
+      const workflows = this.store.get('cachedWorkflows');
+      const workflowList = Object.values(workflows).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+      if (workflowList.length > 100) {
+        const workflowsToKeep = workflowList.slice(0, 50);
+        const newWorkflows: Record<string, any> = {};
+        workflowsToKeep.forEach((workflow: any) => {
+          newWorkflows[workflow.id] = workflow;
+        });
+        this.store.set('cachedWorkflows', newWorkflows);
+      }
+      
+      // 清理会话，最多保留 50 个
+      const sessionList = Object.values(sessions).sort((a: any, b: any) => b.updatedAt - a.updatedAt);
+      if (sessionList.length > 50) {
+        const sessionsToKeep = sessionList.slice(0, 25);
+        const newSessions: Record<string, any> = {};
+        sessionsToKeep.forEach((session: any) => {
+          newSessions[session.id] = session;
+        });
+        this.store.set('cachedSessions', newSessions);
+        
+        // 删除被清理会话的消息
+        Object.keys(messages).forEach(sessionId => {
+          if (!newSessions[sessionId]) {
+            delete messages[sessionId];
+          }
+        });
+      }
+      
+      // 保存清理后的状态
+      this.store.set('cachedMessages', messages);
+      this.store.set('cachedSessions', sessions);
+      
+      console.log('Cache cleanup completed');
+    } catch (error) {
+      console.error('Error during cache cleanup:', error);
+    }
+  }
 
   close(): void {
     // electron-store auto-saves

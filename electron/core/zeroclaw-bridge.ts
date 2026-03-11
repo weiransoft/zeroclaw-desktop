@@ -39,6 +39,50 @@ const GATEWAY_PORT = 8080;
 const MAX_MESSAGE_BUFFER_SIZE = 10 * 1024 * 1024; // 10MB
 const MAX_ACCUMULATED_CONTENT_SIZE = 5 * 1024 * 1024; // 5MB
 
+/**
+ * SSE 流式解析器
+ * 高性能的 Server-Sent Events 解析器，避免频繁的字符串 split 操作
+ */
+class SSEParser {
+  private buffer = '';
+  
+  /**
+   * 解析 SSE 数据块
+   * @param chunk 接收到的数据块
+   * @returns 解析后的事件数组
+   */
+  parse(chunk: string): any[] {
+    this.buffer += chunk;
+    const events: any[] = [];
+    let newlineIndex: number;
+    
+    // 使用 indexOf 查找换行符，避免 split 整个 buffer
+    while ((newlineIndex = this.buffer.indexOf('\n')) !== -1) {
+      const line = this.buffer.slice(0, newlineIndex);
+      this.buffer = this.buffer.slice(newlineIndex + 1);
+      
+      if (line.startsWith('data:')) {
+        try {
+          const data = JSON.parse(line.substring(5).trim());
+          events.push(data);
+        } catch (e) {
+          // 解析失败时保留原始数据用于调试
+          console.warn('[SSE] Parse error:', line.substring(0, 100));
+        }
+      }
+    }
+    
+    return events;
+  }
+  
+  /**
+   * 重置解析器状态
+   */
+  reset(): void {
+    this.buffer = '';
+  }
+}
+
 export class ZeroClawBridge extends EventEmitter {
   private process: ChildProcess | null = null;
   private db: Database;
@@ -53,6 +97,11 @@ export class ZeroClawBridge extends EventEmitter {
   private accumulatedContent: string = '';
   private processEventHandlers: Array<() => void> = [];
   private checkGatewayPromise: Promise<void> | null = null;
+  
+  // 数据库异步批量写入优化
+  private messageQueue: Array<{sessionId: string, message: Message}> = [];
+  private saveTimeout: NodeJS.Timeout | null = null;
+  private readonly SAVE_DELAY_MS = 100; // 防抖延迟
 
   constructor(db: Database) {
     super();
@@ -275,7 +324,6 @@ export class ZeroClawBridge extends EventEmitter {
   }
 
   private checkGatewayLock: boolean = false;
-  private checkGatewayPromise: Promise<void> | null = null;
 
   /**
    * 检查网关状态
@@ -851,7 +899,9 @@ export class ZeroClawBridge extends EventEmitter {
   }
 
   async sendMessage(message: string, sessionId?: string): Promise<{ success: boolean }> {
-    if (!this.isRunning) {
+    // 性能优化：只在 Gateway 状态未知时检查，避免每次发送消息都检查
+    // 如果 Gateway 已经可用，直接发送请求
+    if (!this.isRunning && !this.gatewayAvailable) {
       await this.checkGateway();
       if (!this.gatewayAvailable) {
         throw new Error('ZeroClaw is not running');
@@ -871,7 +921,8 @@ export class ZeroClawBridge extends EventEmitter {
       timestamp: Date.now(),
     };
 
-    this.db.addMessage(this.currentSessionId, userMessage);
+    // 性能优化：异步批量保存消息，减少磁盘 I/O
+    this.queueMessageSave(this.currentSessionId, userMessage);
     broadcastToWindows('chat:message', { sessionId: this.currentSessionId, ...userMessage });
 
     if (this.gatewayAvailable) {
@@ -883,6 +934,8 @@ export class ZeroClawBridge extends EventEmitter {
         
         return { success: true };
       } catch (err: any) {
+        // 如果请求失败，可能是 Gateway 状态变化，触发一次检查
+        console.log('[ZeroClawBridge] Gateway request failed, will recheck status:', err.message);
         broadcastToWindows('system:log', { level: 'error', message: `Gateway error: ${err.message}` });
         broadcastToWindows('chat:stream-end', { sessionId: this.currentSessionId, error: err.message });
         throw err;
@@ -898,6 +951,8 @@ export class ZeroClawBridge extends EventEmitter {
 
   private async streamChatRequest(message: string): Promise<void> {
     const http = require('http');
+    const startTime = Date.now();
+    console.log(`[PERF] streamChatRequest start`);
     
     // Send stream-start event
     broadcastToWindows('chat:stream-start', { sessionId: this.currentSessionId });
@@ -923,42 +978,48 @@ export class ZeroClawBridge extends EventEmitter {
         timeout: 300000, // 5 minutes timeout for LLM calls
       };
 
+      const reqStart = Date.now();
       const req = http.request(options, (res: any) => {
-        let buffer = '';
+        console.log(`[PERF] Gateway response started after: ${Date.now() - reqStart}ms`);
+        
+        // 使用高性能 SSE 解析器
+        const parser = new SSEParser();
+        let chunkCount = 0;
+        let totalBytes = 0;
+        let eventCount = 0;
         
         res.on('data', (chunk: Buffer) => {
-          buffer += chunk.toString();
+          chunkCount++;
+          totalBytes += chunk.length;
           
-          // Parse SSE events
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
+          // 使用 SSE 解析器高效解析
+          const events = parser.parse(chunk.toString());
+          eventCount += events.length;
           
-          for (const line of lines) {
-            if (line.startsWith('data:')) {
-              try {
-                const data = JSON.parse(line.substring(5).trim());
-                this.handleStreamEvent(data);
-              } catch (e) {
-                // Ignore parse errors
-              }
-            }
+          for (const data of events) {
+            this.handleStreamEvent(data);
           }
         });
         
         res.on('end', () => {
+          const totalTime = Date.now() - startTime;
+          console.log(`[PERF] Request completed: ${totalTime}ms, chunks: ${chunkCount}, bytes: ${totalBytes}, events: ${eventCount}`);
           resolve();
         });
         
         res.on('error', (err: Error) => {
+          console.log(`[PERF] Request error after ${Date.now() - reqStart}ms:`, err.message);
           reject(err);
         });
       });
 
       req.on('error', (err: Error) => {
+        console.log(`[PERF] Request failed after ${Date.now() - reqStart}ms:`, err.message);
         reject(err);
       });
 
       req.on('timeout', () => {
+        console.log(`[PERF] Request timeout after ${Date.now() - reqStart}ms`);
         req.destroy();
         reject(new Error('Request timeout'));
       });
@@ -988,7 +1049,8 @@ export class ZeroClawBridge extends EventEmitter {
           content: event.response,
           timestamp: Date.now(),
         };
-        this.db.addMessage(this.currentSessionId!, assistantMessage);
+        // 性能优化：异步批量保存消息
+        this.queueMessageSave(this.currentSessionId!, assistantMessage);
         broadcastToWindows('chat:message', { sessionId: this.currentSessionId, ...assistantMessage });
         broadcastToWindows('chat:stream-end', { sessionId: this.currentSessionId });
         break;
@@ -2809,5 +2871,51 @@ export class ZeroClawBridge extends EventEmitter {
       }
     }
     return { success: false, elements: [], error: 'Gateway not available' };
+  }
+  
+  // ============ 性能优化：数据库异步批量写入 ============
+  
+  /**
+   * 将消息加入保存队列（防抖批量写入）
+   * 性能优化：减少磁盘 I/O 操作，提高响应速度
+   * @param sessionId 会话 ID
+   * @param message 消息对象
+   */
+  private queueMessageSave(sessionId: string, message: Message): void {
+    this.messageQueue.push({ sessionId, message });
+    
+    // 清除之前的定时器
+    if (this.saveTimeout) {
+      clearTimeout(this.saveTimeout);
+    }
+    
+    // 设置新的防抖定时器
+    this.saveTimeout = setTimeout(() => {
+      this.flushMessageQueue();
+    }, this.SAVE_DELAY_MS);
+  }
+  
+  /**
+   * 批量刷新消息队列到数据库
+   * 将队列中的所有消息一次性写入数据库
+   */
+  private flushMessageQueue(): void {
+    if (this.messageQueue.length === 0) {
+      return;
+    }
+    
+    const queueToSave = [...this.messageQueue];
+    this.messageQueue = [];
+    this.saveTimeout = null;
+    
+    for (const { sessionId, message } of queueToSave) {
+      try {
+        this.db.addMessage(sessionId, message);
+      } catch (err) {
+        console.error('[ZeroClawBridge] Failed to save message to database:', err);
+      }
+    }
+    
+    console.log(`[PERF] Flushed ${queueToSave.length} messages to database`);
   }
 }

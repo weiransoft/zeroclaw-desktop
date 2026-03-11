@@ -23,6 +23,7 @@ export function useChat() {
   const [streamingContent, setStreamingContent] = useState<string>('');
   const [status, setStatus] = useState<{ status: string; message: string } | null>(null);
   const streamingSessionRef = useRef<string | null>(null);
+  const rafRef = useRef<number>();
 
   useEffect(() => {
     loadSessions();
@@ -78,13 +79,28 @@ export function useChat() {
     const onStreamChunk = window.zeroclaw.chat.onStreamChunk;
     if (!onStreamChunk) return;
     
+    // 性能优化：使用 requestAnimationFrame 批处理渲染，减少频繁的状态更新
     const unsubscribe = onStreamChunk((data) => {
       if (data.accumulated !== undefined) {
-        setStreamingContent(data.accumulated);
+        // 取消之前的渲染请求
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+        }
+        
+        // 使用 requestAnimationFrame 在下一次重绘时更新
+        rafRef.current = requestAnimationFrame(() => {
+          setStreamingContent(data.accumulated);
+          rafRef.current = undefined;
+        });
       }
     });
 
     return () => {
+      // 清理时取消渲染请求
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
